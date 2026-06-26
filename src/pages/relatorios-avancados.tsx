@@ -66,7 +66,7 @@ export default function RelatoriosAvancadosPage() {
           custoMedio: dados.length ? (dados.reduce((sum, p) => sum + p.custo_total, 0) / dados.length).toFixed(2) : 0,
         };
       })
-      .sort((a, b) => b.eficienciaMedia - a.eficienciaMedia);
+      .sort((a, b) => parseFloat(b.eficienciaMedia as string) - parseFloat(a.eficienciaMedia as string));
   }, [funcionarios, dadosFiltrados]);
 
   // ============================================================================

@@ -148,8 +148,14 @@ export default function ImportacaoPage() {
 
   async function salvarFuncionarios(rows: FuncionarioImportado[]) {
     prog.log('section', `── Funcionários (${rows.length}) ──`);
-    const { data: existing } = await supabase.from('funcionarios').select('nome');
-    if (!existing) { prog.log('error', 'Falha ao buscar funcionários existentes'); return; }
+    const { data: existing, error: errEx } = await supabase.from('funcionarios').select('nome');
+    if (errEx || !existing) {
+      prog.log('error', `Falha ao consultar funcionários: ${errEx?.message ?? 'sem dados'}`);
+      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
+      // Incrementa erros para todos os registros
+      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
+      return;
+    }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
@@ -168,7 +174,6 @@ export default function ImportacaoPage() {
         funcao: r.funcao,
         salario: r.salario,
         cartao_beneficio: r.cartao_beneficio ?? 0,
-        ativo: true,
       });
 
       if (error) {
@@ -184,8 +189,13 @@ export default function ImportacaoPage() {
 
   async function salvarClientes(rows: ClienteImportado[]) {
     prog.log('section', `── Clientes (${rows.length}) ──`);
-    const { data: existing } = await supabase.from('clientes').select('razao_social');
-    if (!existing) { prog.log('error', 'Falha ao buscar clientes existentes'); return; }
+    const { data: existing, error: errEx } = await supabase.from('clientes').select('razao_social');
+    if (errEx || !existing) {
+      prog.log('error', `Falha ao consultar clientes: ${errEx?.message ?? 'sem dados'}`);
+      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
+      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
+      return;
+    }
     const vistos = new Set(existing.map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
@@ -207,7 +217,7 @@ export default function ImportacaoPage() {
         telefone: r.telefone ?? null,
         cidade: r.cidade ?? null,
         uf: r.uf ?? null,
-        ativo: true,
+        // ativo usa DEFAULT true do banco (não enviamos para não depender da coluna existir no cache)
       });
 
       if (error) {
@@ -232,8 +242,13 @@ export default function ImportacaoPage() {
       if (c.nome_fantasia) clienteMap.set(c.nome_fantasia.trim().toLowerCase(), c.id);
     }
 
-    const { data: existing } = await supabase.from('produtos').select('codigo');
-    if (!existing) { prog.log('error', 'Falha ao buscar produtos existentes'); return; }
+    const { data: existing, error: errExP } = await supabase.from('produtos').select('codigo');
+    if (errExP || !existing) {
+      prog.log('error', `Falha ao consultar produtos: ${errExP?.message ?? 'sem dados'}`);
+      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
+      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
+      return;
+    }
     const vistos = new Set(existing.map((r: { codigo: string }) => r.codigo.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
@@ -266,7 +281,7 @@ export default function ImportacaoPage() {
         tipo_material: r.tipo_material ?? 'sucata',
         custo_adicional: r.custo_adicional ?? 0,
         cliente_id: clienteId,
-        ativo: true,
+        // ativo usa DEFAULT true do banco
       });
 
       if (error) {

@@ -1,17 +1,6 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+import { ResponsiveContainer } from 'recharts';
 
 export default function RelatoriosPage() {
   const { producoes, funcionarios, produtos, loading } = useProducao();

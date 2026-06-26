@@ -21,7 +21,7 @@ import {
 const CORES = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
 export default function RelatoriosAvancadosPage() {
-  const { producoes, funcionarios, produtos, clientes, loading } = useProducao();
+  const { producoes, funcionarios, produtos, loading } = useProducao();
 
   // FILTROS
   const [filtroDataInicio, setFiltroDataInicio] = useState('');

@@ -186,7 +186,8 @@ CREATE TABLE IF NOT EXISTS config_sistema (
   created_at                 TIMESTAMPTZ DEFAULT NOW(),
   updated_at                 TIMESTAMPTZ DEFAULT NOW()
 );
-INSERT INTO config_sistema DEFAULT VALUES
+INSERT INTO config_sistema (empresa_nome)
+SELECT 'Fundição PRO'
 WHERE NOT EXISTS (SELECT 1 FROM config_sistema LIMIT 1);
 
 -- ── 7. RLS — POLICIES ABERTAS (desenvolvimento) ─────────

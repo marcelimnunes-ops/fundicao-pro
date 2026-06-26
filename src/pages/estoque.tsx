@@ -3,7 +3,7 @@ import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
 
 export default function EstoquePage() {
-  const { estoque, loading } = useProducao();
+  const { estoque } = useProducao();
 
   return (
     <Layout title="Estoque">

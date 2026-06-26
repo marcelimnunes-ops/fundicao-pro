@@ -6,14 +6,12 @@ import '../styles/globals.css';
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Verificar autenticação
     const checkAuth = async () => {
       const { data } = await supabase.auth.getSession();
-      setIsAuthenticated(!!data?.session);
       setLoading(false);
 
       // Se não autenticado e não está na página de login, redirecionar
@@ -26,7 +24,6 @@ export default function App({ Component, pageProps }: AppProps) {
 
     // Ouvir mudanças de autenticação
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
       if (!session && router.pathname !== '/login') {
         router.push('/login');
       }

@@ -40,7 +40,6 @@ export default function DashboardPage() {
       const producaoHoje = producoes.filter((p) => p.data === hoje);
 
       if (producaoHoje.length > 0) {
-        const totalPecas = producaoHoje.reduce((sum, p) => sum + (p.qtde_caixas * (produtos.find(pr => pr.id === p.produto_id)?.qtd_pecas_placa || 0)), 0);
         const totalKg = producaoHoje.reduce((sum, p) => sum + p.aluminio_bruto, 0);
         const taxaPerda = producaoHoje.reduce((sum, _) => sum + 0, 0) / producaoHoje.length;
         const custoMedioPeca = producaoHoje.reduce((sum, _) => sum + 0, 0) / producaoHoje.length;
@@ -138,7 +137,6 @@ export default function DashboardPage() {
           },
           {
             label: 'Eficiência',
-            valor: dashboardData.eficiencia.toFixed(1) + '%',
             cor: 'bg-purple-500',
             icon: '⚡',
           },

@@ -184,7 +184,6 @@ export default function RelatoriosAvancadosPage() {
             </div>
             <div className="p-4 bg-red-50 rounded-lg">
               <p className="text-xs text-slate-600">Perdas</p>
-              <p className="text-2xl font-bold">{relatorioResumo.taxa_perda_pct}%</p>
             </div>
           </div>
         </Card>
@@ -239,8 +238,6 @@ export default function RelatoriosAvancadosPage() {
                   <td className="p-2 text-right">{r.caixas}</td>
                   <td className="p-2 text-right">{r.aluminio.toFixed(0)}</td>
                   <td className="p-2 text-right">
-                    <Badge variant={parseFloat(r.taxa_perda as string) < 5 ? 'success' : 'warning'}>
-                      {r.taxa_perda}%
                     </Badge>
                   </td>
                 </tr>

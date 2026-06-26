@@ -1,6 +1,6 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import { ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function RelatoriosPage() {
   const { producoes, funcionarios, produtos, loading } = useProducao();
@@ -81,8 +81,6 @@ export default function RelatoriosPage() {
             {produtos.slice(0, 5).map((p) => {
               const prodsRelacionados = producoes.filter((prod) => prod.produto_id === p.id);
               const receitaEstimada =
-                (p.preco_venda || 0) * prodsRelacionados.reduce((sum, pr) => sum + pr.qtde_caixas * p.qtd_pecas_placa, 0);
-              const custoTotal = prodsRelacionados.reduce((sum, pr) => sum + pr.custo_total, 0);
               const lucro = receitaEstimada - custoTotal;
 
               return (

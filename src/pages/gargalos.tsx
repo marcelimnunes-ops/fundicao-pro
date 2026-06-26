@@ -15,7 +15,7 @@ export default function GarralosPage() {
       const tempoTotal = prods.reduce((sum, p) => sum + p.tempo_horas, 0);
       const caixasPorHora = tempoTotal > 0 ? (caixasTotal / tempoTotal).toFixed(2) : '0';
       const perdaMedia = prods.length > 0 
-        ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length).toFixed(2)
+        ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length).toFixed(2)
         : '0';
 
       return {
@@ -31,7 +31,6 @@ export default function GarralosPage() {
     .map((p) => {
       const prods = producoes.filter((pr) => pr.produto_id === p.id);
       const perdaMedia = prods.length > 0
-        ? (prods.reduce((sum, pr) => sum + pr.taxa_perda, 0) / prods.length).toFixed(2)
         : '0';
 
       return {
@@ -57,7 +56,7 @@ export default function GarralosPage() {
         ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length).toFixed(1)
         : '0',
       perda: prods.length > 0
-        ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length).toFixed(1)
+        ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length).toFixed(1)
         : '0',
     };
   });

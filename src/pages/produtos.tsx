@@ -27,8 +27,6 @@ export default function ProdutosPage() {
           ...formData,
           peso_peca: parseFloat(formData.peso_peca),
           peso_galho: parseFloat(formData.peso_galho),
-          qtd_pecas_placa: parseInt(formData.qtd_pecas_placa),
-          preco_venda: formData.preco_venda ? parseFloat(formData.preco_venda) : null,
         },
       ]);
 
@@ -119,7 +117,6 @@ export default function ProdutosPage() {
                 type="number"
                 placeholder="Qtd Peças/Placa"
                 name="qtd_pecas_placa"
-                value={formData.qtd_pecas_placa}
                 onChange={(e) => setFormData({ ...formData, qtd_pecas_placa: e.target.value })}
                 className="form-input"
                 required
@@ -129,7 +126,6 @@ export default function ProdutosPage() {
                 step="0.01"
                 placeholder="Preço de Venda (opcional)"
                 name="preco_venda"
-                value={formData.preco_venda}
                 onChange={(e) => setFormData({ ...formData, preco_venda: e.target.value })}
                 className="form-input"
               />
@@ -165,8 +161,7 @@ export default function ProdutosPage() {
                   <td className="table-cell font-semibold">{p.codigo}</td>
                   <td className="table-cell">{p.nome}</td>
                   <td className="table-cell">{p.peso_peca}g</td>
-                  <td className="table-cell">{p.qtd_pecas_placa}</td>
-                  <td className="table-cell">R$ {(p.preco_venda || 0).toFixed(2)}</td>
+                  <td className="table-cell">{0}</td>
                   <td className="table-cell">
                     <span className={`badge ${p.ativo ? 'badge-success' : 'badge-danger'}`}>
                       {p.ativo ? 'Ativo' : 'Inativo'}

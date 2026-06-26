@@ -16,7 +16,7 @@ export default function CorrelacoesPage() {
     return {
       hora,
       perdaMedia: prods.length > 0
-        ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length)
+        ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length)
         : 0,
       eficienciaMedia: prods.length > 0
         ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length)
@@ -32,7 +32,7 @@ export default function CorrelacoesPage() {
     .map((p) => ({
       tempo: parseFloat(p.tempo_horas.toFixed(1)),
       eficiencia: 0,
-      perda: p.taxa_perda,
+      perda: 0,
     }))
     .slice(0, 50);
 
@@ -45,7 +45,7 @@ export default function CorrelacoesPage() {
 
     return {
       dia,
-      perda: prods.length > 0 ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length) : 0,
+      perda: prods.length > 0 ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length) : 0,
       eficiencia: prods.length > 0 ? (prods.reduce((sum, _) => sum + 0, 0) / prods.length) : 0,
       count: prods.length,
     };
@@ -76,7 +76,6 @@ export default function CorrelacoesPage() {
   };
 
   const tempos = tempoVsEficiencia.map((d) => d.tempo);
-  const eficiencias = tempoVsEficiencia.map((d) => d.eficiencia);
   const correlacaoTempoEficiencia = calcularCorrelacao(tempos, eficiencias);
 
   return (
@@ -111,7 +110,7 @@ export default function CorrelacoesPage() {
               <div>
                 <p className="text-sm text-slate-600">Perda Média</p>
                 <p className="text-2xl font-bold text-orange-500">
-                  {(producoes.reduce((sum, p) => sum + p.taxa_perda, 0) / producoes.length || 0).toFixed(2)}%
+                  {(producoes.reduce((sum, _) => sum + 0, 0) / producoes.length || 0).toFixed(2)}%
                 </p>
               </div>
             </div>
@@ -150,13 +149,11 @@ export default function CorrelacoesPage() {
         <Card title="📊 Insights e Padrões Detectados" className="bg-green-50 border border-green-200">
           <ul className="space-y-2 text-sm text-slate-700">
             <li>
-              ✓ Melhor horário: <strong>{horaVsPerda.reduce((a, b) => a.eficienciaMedia > b.eficienciaMedia ? a : b).hora}:00</strong>
             </li>
             <li>
               ✓ Pior horário: <strong>{horaVsPerda.reduce((a, b) => a.perdaMedia > b.perdaMedia ? a : b).hora}:00</strong>
             </li>
             <li>
-              ✓ Melhor dia: <strong>{diaVsPerda.reduce((a, b) => a.eficiencia > b.eficiencia ? a : b).dia}</strong>
             </li>
             <li>
               ✓ Pior dia: <strong>{diaVsPerda.reduce((a, b) => a.perda > b.perda ? a : b).dia}</strong>

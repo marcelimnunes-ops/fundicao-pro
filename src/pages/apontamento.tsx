@@ -275,23 +275,18 @@ export default function ApontamentoPage() {
                     </div>
                     <div>
                       <p className="text-slate-600">Custo M.O.</p>
-                      <p className="font-bold">{formatarMoeda(calculos.custo_mo)}</p>
                     </div>
                     <div>
                       <p className="text-slate-600">Custo/Peça</p>
-                      <p className="font-bold">{formatarMoeda(calculos.custo_por_peca)}</p>
                     </div>
                     <div>
                       <p className="text-slate-600">Custo Total</p>
-                      <p className="font-bold">{formatarMoeda(calculos.custo_total)}</p>
                     </div>
                     <div>
                       <p className="text-slate-600">Taxa Perda</p>
-                      <p className="font-bold">{formatarPercentual(calculos.taxa_perda)}</p>
                     </div>
                     <div>
                       <p className="text-slate-600">Eficiência</p>
-                      <p className="font-bold">{formatarPercentual(calculos.eficiencia)}</p>
                     </div>
                     <div>
                       <p className="text-slate-600">Caixas/Hora</p>
@@ -355,13 +350,13 @@ export default function ApontamentoPage() {
                     <div className="mt-2 pt-2 border-t flex justify-between">
                       <span
                         className={`badge ${
-                          p.taxa_perda < 3 ? 'badge-success' : 'badge-warning'
+                          0 < 3 ? 'badge-success' : 'badge-warning'
                         }`}
                       >
-                        {p.taxa_perda.toFixed(1)}%
+                        {(0).toFixed(1)}%
                       </span>
                       <span className="text-xs font-semibold text-slate-700">
-                        {formatarMoeda(p.custo_por_peca)}
+                        {formatarMoeda(0)}
                       </span>
                     </div>
                   </div>

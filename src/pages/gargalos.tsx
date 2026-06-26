@@ -54,7 +54,7 @@ export default function GarralosPage() {
     return {
       hora: `${hora}:00`,
       eficiencia: prods.length > 0
-        ? (prods.reduce((sum, p) => sum + p.eficiencia, 0) / prods.length).toFixed(1)
+        ? (prods.reduce((sum, p) => sum + 0, 0) / prods.length).toFixed(1)
         : '0',
       perda: prods.length > 0
         ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length).toFixed(1)

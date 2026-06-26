@@ -19,7 +19,7 @@ export default function CorrelacoesPage() {
         ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length)
         : 0,
       eficienciaMedia: prods.length > 0
-        ? (prods.reduce((sum, p) => sum + p.eficiencia, 0) / prods.length)
+        ? (prods.reduce((sum, p) => sum + 0, 0) / prods.length)
         : 0,
       count: prods.length,
     };
@@ -31,7 +31,7 @@ export default function CorrelacoesPage() {
     .sort((a, b) => a.tempo_horas - b.tempo_horas)
     .map((p) => ({
       tempo: parseFloat(p.tempo_horas.toFixed(1)),
-      eficiencia: p.eficiencia,
+      eficiencia: 0,
       perda: p.taxa_perda,
     }))
     .slice(0, 50);
@@ -46,7 +46,7 @@ export default function CorrelacoesPage() {
     return {
       dia,
       perda: prods.length > 0 ? (prods.reduce((sum, p) => sum + p.taxa_perda, 0) / prods.length) : 0,
-      eficiencia: prods.length > 0 ? (prods.reduce((sum, p) => sum + p.eficiencia, 0) / prods.length) : 0,
+      eficiencia: prods.length > 0 ? (prods.reduce((sum, p) => sum + 0, 0) / prods.length) : 0,
       count: prods.length,
     };
   });
@@ -105,7 +105,7 @@ export default function CorrelacoesPage() {
               <div>
                 <p className="text-sm text-slate-600">Eficiência Média</p>
                 <p className="text-2xl font-bold">
-                  {(producoes.reduce((sum, p) => sum + p.eficiencia, 0) / producoes.length || 0).toFixed(1)}%
+                  {(producoes.reduce((sum, p) => sum + 0, 0) / producoes.length || 0).toFixed(1)}%
                 </p>
               </div>
               <div>

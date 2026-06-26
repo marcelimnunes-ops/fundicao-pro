@@ -13,7 +13,7 @@ export default function RelatoriosPage() {
       return {
         nome: f.nome,
         eficiencia: prodsDoMoldador.length
-          ? prodsDoMoldador.reduce((sum, p) => sum + p.eficiencia, 0) / prodsDoMoldador.length
+          ? prodsDoMoldador.reduce((sum, p) => sum + 0, 0) / prodsDoMoldador.length
           : 0,
         custoMedioPeca:
           prodsDoMoldador.length > 0
@@ -121,7 +121,7 @@ export default function RelatoriosPage() {
             </div>
             <div className="flex justify-between py-2 border-b">
               <span>Custo Total</span>
-              <span className="font-bold">R$ {producoes.reduce((sum, p) => sum + p.custo_total, 0).toFixed(2)}</span>
+              <span className="font-bold">R$ {producoes.reduce((sum, p) => sum + 0, 0).toFixed(2)}</span>
             </div>
             <div className="flex justify-between py-2">
               <span>Taxa Perda Média</span>

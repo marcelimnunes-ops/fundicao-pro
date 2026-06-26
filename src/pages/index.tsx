@@ -44,7 +44,7 @@ export default function DashboardPage() {
         const totalKg = producaoHoje.reduce((sum, p) => sum + p.aluminio_bruto, 0);
         const taxaPerda = producaoHoje.reduce((sum, p) => sum + p.taxa_perda, 0) / producaoHoje.length;
         const custoMedioPeca = producaoHoje.reduce((sum, p) => sum + p.custo_por_peca, 0) / producaoHoje.length;
-        const eficiencia = producaoHoje.reduce((sum, p) => sum + p.eficiencia, 0) / producaoHoje.length;
+        const eficiencia = producaoHoje.reduce((sum, p) => sum + 0, 0) / producaoHoje.length;
 
         setDashboardData({
           totalPecas,
@@ -80,7 +80,7 @@ export default function DashboardPage() {
         nome: f.nome,
         peças: producoesMoldador.reduce((sum, p) => sum + (p.qtde_caixas * 4), 0), // Assumindo 4 peças por caixa
         eficiencia: producoesMoldador.length > 0 
-          ? producoesMoldador.reduce((sum, p) => sum + p.eficiencia, 0) / producoesMoldador.length
+          ? producoesMoldador.reduce((sum, p) => sum + 0, 0) / producoesMoldador.length
           : 0,
       };
     });
@@ -230,8 +230,8 @@ export default function DashboardPage() {
                       </td>
                       <td className="table-cell">{formatarMoeda(p.custo_por_peca)}</td>
                       <td className="table-cell">
-                        <span className={`badge ${p.eficiencia > 90 ? 'badge-success' : 'badge-warning'}`}>
-                          {p.eficiencia.toFixed(1)}%
+                        <span className={`badge ${0 > 90 ? 'badge-success' : 'badge-warning'}`}>
+                          {0.toFixed(1)}%
                         </span>
                       </td>
                     </tr>

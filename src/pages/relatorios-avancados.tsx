@@ -29,7 +29,6 @@ export default function RelatoriosAvancadosPage() {
   const [filtroMoldador, setFiltroMoldador] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroProduto, setFiltroProduto] = useState('');
-  const [tipoRelatorio, setTipoRelatorio] = useState('geral');
 
   // DADOS FILTRADOS
   const dadosFiltrados = useMemo(() => {

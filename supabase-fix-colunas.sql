@@ -4,6 +4,32 @@
 -- Execute TUDO de uma vez (selecione tudo, Run)
 -- ============================================================
 
+-- ── 0. CORRIGE TRIGGERS QUE REFERENCIAM cartao_custo ───
+-- O erro "record new has no field cartao_custo" vem de trigger com nome antigo
+DO $$
+DECLARE trig RECORD;
+BEGIN
+  FOR trig IN
+    SELECT trigger_name
+    FROM information_schema.triggers
+    WHERE event_object_table = 'funcionarios'
+      AND trigger_schema = 'public'
+  LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON funcionarios', trig.trigger_name);
+  END LOOP;
+END $$;
+
+-- Se custo_hora era calculado por trigger (não GENERATED), recria como GENERATED
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'funcionarios' AND column_name = 'custo_hora'
+  ) THEN
+    -- Remove e recria como GENERATED (só funciona se não for GENERATED já)
+    NULL; -- já existe, será substituído abaixo se necessário
+  END IF;
+END $$;
+
 -- ── 1. FUNCIONARIOS ─────────────────────────────────────
 ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS codigo         VARCHAR(10);
 ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS cpf            VARCHAR(14);
@@ -87,12 +113,21 @@ UPDATE clientes SET razao_social = 'SEM NOME' WHERE razao_social IS NULL OR raza
 ALTER TABLE clientes ALTER COLUMN razao_social SET NOT NULL;
 
 -- ── 3. PRODUTOS ──────────────────────────────────────────
+-- Remove NOT NULL de colunas que podem vir vazias do Excel
+ALTER TABLE produtos ALTER COLUMN peso_peca  DROP NOT NULL;
+ALTER TABLE produtos ALTER COLUMN peso_galho DROP NOT NULL;
+
+-- Garante default 0 para evitar null em NOT NULL herdado
+ALTER TABLE produtos ALTER COLUMN peso_peca  SET DEFAULT 0;
+ALTER TABLE produtos ALTER COLUMN peso_galho SET DEFAULT 0;
+
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo                VARCHAR(30);
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS nome                  VARCHAR(150);
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS descricao             TEXT;
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS qtd_peca_placa        INT DEFAULT 1;
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_peca             DECIMAL(10,4);
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_total_galho      DECIMAL(10,4);
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_peca             DECIMAL(10,4) DEFAULT 0;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_galho            DECIMAL(10,4) DEFAULT 0;  -- nome real no banco
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_total_galho      DECIMAL(10,4) DEFAULT 0;  -- alias, se existir no banco
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS percentual_retorno    DECIMAL(8,6);
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS qtd_machos_por_caixa  INT DEFAULT 0;
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS peso_macho            DECIMAL(10,4);

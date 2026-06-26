@@ -23,7 +23,10 @@ export default function Layout({ children, title }: LayoutProps) {
     { label: '📦 Produtos', href: '/produtos' },
     { label: '👥 Funcionários', href: '/funcionarios' },
     { label: '🏭 Estoque', href: '/estoque' },
-    { label: '📈 Relatórios', href: '/relatorios' },
+    { label: '📈 Relatórios Simples', href: '/relatorios' },
+    { label: '📊 Relatórios Avançados', href: '/relatorios-avancados' },
+    { label: '🔍 Gargalos', href: '/gargalos' },
+    { label: '🔗 Correlações', href: '/correlacoes' },
     { label: '⚙️ Configurações', href: '/configuracoes' },
   ];
 

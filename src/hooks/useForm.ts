@@ -20,7 +20,6 @@ interface UseFormReturn<T> {
 
 export function useForm<T extends Record<string, any>>(
   initialValues: T,
-  onSubmit?: (values: T) => void | Promise<void>,
   validate?: (values: T) => FormErrors
 ): UseFormReturn<T> {
   const [values, setValues] = useState<T>(initialValues);

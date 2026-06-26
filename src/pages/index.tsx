@@ -225,13 +225,13 @@ export default function DashboardPage() {
                       <td className="table-cell">{p.qtde_caixas}</td>
                       <td className="table-cell">
                         <span className={`badge ${0 < 3 ? 'badge-success' : 'badge-warning'}`}>
-                          {0.toFixed(2)}%
+                          {(0).toFixed(2)}%
                         </span>
                       </td>
                       <td className="table-cell">{formatarMoeda(0)}</td>
                       <td className="table-cell">
                         <span className={`badge ${0 > 90 ? 'badge-success' : 'badge-warning'}`}>
-                          {0.toFixed(1)}%
+                          {(0).toFixed(1)}%
                         </span>
                       </td>
                     </tr>

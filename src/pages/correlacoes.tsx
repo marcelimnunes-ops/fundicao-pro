@@ -5,7 +5,7 @@ import { Card, FormInput } from '@/components/ui';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function CorrelacoesPage() {
-  const { producoes, funcionarios, loading } = useProducao();
+  const { producoes, loading } = useProducao();
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
 

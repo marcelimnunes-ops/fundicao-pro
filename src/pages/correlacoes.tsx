@@ -1,7 +1,7 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
 import { Card } from '@/components/ui';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function CorrelacoesPage() {
   const { producoes } = useProducao();

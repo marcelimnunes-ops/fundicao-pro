@@ -27,7 +27,6 @@ export default function RelatoriosAvancadosPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroMoldador, setFiltroMoldador] = useState('');
-  const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroProduto, setFiltroProduto] = useState('');
 
   // DADOS FILTRADOS
@@ -43,15 +42,12 @@ export default function RelatoriosAvancadosPage() {
     if (filtroMoldador) {
       dados = dados.filter((p) => p.moldador_id === filtroMoldador);
     }
-    if (filtroCliente) {
-      dados = dados.filter((p) => p.cliente_id === filtroCliente);
-    }
     if (filtroProduto) {
       dados = dados.filter((p) => p.produto_id === filtroProduto);
     }
 
     return dados;
-  }, [producoes, filtroDataInicio, filtroDataFim, filtroMoldador, filtroCliente, filtroProduto]);
+  }, [producoes, filtroDataInicio, filtroDataFim, filtroMoldador, filtroProduto]);
 
   // ============================================================================
   // RELATÓRIO 1: PERFORMANCE POR MOLDADOR (COM FILTROS)

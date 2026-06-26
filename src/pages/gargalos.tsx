@@ -23,7 +23,7 @@ export default function GargolosPage() {
         hora: `${hora}:00`,
         apontamentos: prods.length,
         caixas: 0,
-        perdas: prods.reduce((sum, p) => sum + p.perdas_peca, 0),
+        perdas: prods.reduce((sum: number, p) => sum + p.perdas_peca, 0),
       }))
       .sort((a, b) => parseInt(a.hora) - parseInt(b.hora));
   }, [producoes]);

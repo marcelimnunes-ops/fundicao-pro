@@ -7,13 +7,11 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 export default function RelatoriosAvancadosPage() {
   const { producoes, funcionarios, produtos, loading } = useProducao();
 
-  // FILTROS
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroMoldador, setFiltroMoldador] = useState('');
   const [filtroProduto, setFiltroProduto] = useState('');
 
-  // DADOS FILTRADOS
   const dadosFiltrados = useMemo(() => {
     let dados = [...producoes];
 
@@ -33,14 +31,12 @@ export default function RelatoriosAvancadosPage() {
     return dados;
   }, [producoes, filtroDataInicio, filtroDataFim, filtroMoldador, filtroProduto]);
 
-  // RELATÓRIO 1: PERFORMANCE POR MOLDADOR
   const relatorioPerformanceMoldador = useMemo(() => {
     return funcionarios
       .filter((f) => f.funcao === 'Moldador')
       .map((f) => {
         const dados = dadosFiltrados.filter((p) => p.moldador_id === f.id);
         const totalAluminio = dados.reduce((sum, p) => sum + p.aluminio_bruto, 0);
-        const totalRetorno = dados.reduce((sum, p) => sum + p.peso_retorno, 0);
         const totalPerdas = dados.reduce((sum, p) => sum + p.perdas_peca, 0);
 
         return {
@@ -48,14 +44,12 @@ export default function RelatoriosAvancadosPage() {
           apontamentos: dados.length,
           caixas: dados.reduce((sum, p) => sum + p.qtde_caixas, 0),
           aluminio: totalAluminio,
-          retorno: totalRetorno,
           perdas: totalPerdas,
           tempo_horas: dados.reduce((sum, p) => sum + p.tempo_horas, 0),
         };
       });
   }, [funcionarios, dadosFiltrados]);
 
-  // RELATÓRIO 2: PRODUÇÃO POR PRODUTO
   const relatorioProducaoProduto = useMemo(() => {
     return produtos.map((prod) => {
       const dados = dadosFiltrados.filter((p) => p.produto_id === prod.id);
@@ -69,17 +63,15 @@ export default function RelatoriosAvancadosPage() {
         caixas: dados.reduce((sum, p) => sum + p.qtde_caixas, 0),
         aluminio: totalAluminio,
         perdas: totalPerdas,
-        taxa_perda: totalAluminio > 0 ? ((totalPerdas / totalAluminio) * 100).toFixed(2) : 0,
+        taxa_perda: totalAluminio > 0 ? ((totalPerdas / totalAluminio) * 100).toFixed(2) : '0',
       };
     }).filter(x => x.apontamentos > 0);
   }, [produtos, dadosFiltrados]);
 
-  // RELATÓRIO 3: RESUMO GERAL
   const relatorioResumo = useMemo(() => {
     const totalApontamentos = dadosFiltrados.length;
     const totalCaixas = dadosFiltrados.reduce((sum, p) => sum + p.qtde_caixas, 0);
     const totalAluminio = dadosFiltrados.reduce((sum, p) => sum + p.aluminio_bruto, 0);
-    const totalRetorno = dadosFiltrados.reduce((sum, p) => sum + p.peso_retorno, 0);
     const totalPerdas = dadosFiltrados.reduce((sum, p) => sum + p.perdas_peca, 0);
     const totalOleo = dadosFiltrados.reduce((sum, p) => sum + p.consumo_oleo, 0);
     const totalHoras = dadosFiltrados.reduce((sum, p) => sum + p.tempo_horas, 0);
@@ -88,15 +80,13 @@ export default function RelatoriosAvancadosPage() {
       apontamentos: totalApontamentos,
       caixas: totalCaixas,
       aluminio: totalAluminio,
-      retorno: totalRetorno,
       perdas: totalPerdas,
-      taxa_perda_pct: totalAluminio > 0 ? ((totalPerdas / totalAluminio) * 100).toFixed(2) : 0,
+      taxa_perda_pct: totalAluminio > 0 ? ((totalPerdas / totalAluminio) * 100).toFixed(2) : '0',
       oleo: totalOleo,
       horas: totalHoras.toFixed(2),
     };
   }, [dadosFiltrados]);
 
-  // GRÁFICO: PRODUÇÃO POR DIA
   const graficoProducaoPorDia = useMemo(() => {
     const mapa = new Map();
 
@@ -184,6 +174,7 @@ export default function RelatoriosAvancadosPage() {
             </div>
             <div className="p-4 bg-red-50 rounded-lg">
               <p className="text-xs text-slate-600">Perdas</p>
+              <p className="text-2xl font-bold">{relatorioResumo.taxa_perda_pct}%</p>
             </div>
           </div>
         </Card>
@@ -238,6 +229,8 @@ export default function RelatoriosAvancadosPage() {
                   <td className="p-2 text-right">{r.caixas}</td>
                   <td className="p-2 text-right">{r.aluminio.toFixed(0)}</td>
                   <td className="p-2 text-right">
+                    <Badge variant={parseFloat(r.taxa_perda) < 5 ? 'success' : 'warning'}>
+                      {r.taxa_perda}%
                     </Badge>
                   </td>
                 </tr>

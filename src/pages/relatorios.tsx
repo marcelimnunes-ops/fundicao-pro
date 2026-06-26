@@ -1,6 +1,7 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { Card, Badge } from '@/components/ui';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function RelatoriosPage() {
   const { producoes, funcionarios, produtos, loading } = useProducao();
@@ -12,33 +13,45 @@ export default function RelatoriosPage() {
       const prodsDoMoldador = producoes.filter((p) => p.moldador_id === f.id);
       return {
         nome: f.nome,
-        eficiencia: prodsDoMoldador.length
-          ? prodsDoMoldador.reduce((sum, _) => sum + 0, 0) / prodsDoMoldador.length
-          : 0,
-        custoMedioPeca:
-          prodsDoMoldador.length > 0
-            ? prodsDoMoldador.reduce((sum, _) => sum + 0, 0) / prodsDoMoldador.length
-            : 0,
+        apontamentos: prodsDoMoldador.length,
+        caixas: prodsDoMoldador.reduce((sum, p) => sum + p.qtde_caixas, 0),
+        aluminio: prodsDoMoldador.reduce((sum, p) => sum + p.aluminio_bruto, 0),
+        horas: prodsDoMoldador.reduce((sum, p) => sum + p.tempo_horas, 0),
+      };
+    });
+
+  const relatorioMoldadores = funcionarios
+    .filter((f) => f.funcao === 'Moldador')
+    .map((f) => {
+      const dados = producoes.filter((p) => p.moldador_id === f.id);
+      const totalAluminio = dados.reduce((sum, p) => sum + p.aluminio_bruto, 0);
+      const totalRetorno = dados.reduce((sum, p) => sum + p.peso_retorno, 0);
+      const totalPerdas = dados.reduce((sum, p) => sum + p.perdas_peca, 0);
+
+      return {
+        nome: f.nome,
+        apontamentos: dados.length,
+        caixas: dados.reduce((sum, p) => sum + p.qtde_caixas, 0),
+        aluminio: totalAluminio,
+        retorno: totalRetorno,
+        perdas: totalPerdas,
+        horas: dados.reduce((sum, p) => sum + p.tempo_horas, 0),
       };
     });
 
   if (loading) {
     return (
       <Layout title="Relatórios">
-        <div className="text-center py-12">
-          <div className="spinner w-12 h-12 mx-auto mb-4"></div>
-          <p>Carregando relatórios...</p>
-        </div>
+        <div className="text-center py-12">Carregando...</div>
       </Layout>
     );
   }
 
   return (
-    <Layout title="Relatórios">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Performance Moldadores */}
-        <div className="card">
-          <h3 className="subsection-title">Performance de Moldadores</h3>
+    <Layout title="Relatórios Gerenciais">
+      <div className="space-y-6">
+        {/* GRÁFICO: PERFORMANCE MOLDADORES */}
+        <Card title="📊 Performance dos Moldadores">
           {performanceMoldadores.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={performanceMoldadores}>
@@ -46,92 +59,67 @@ export default function RelatoriosPage() {
                 <XAxis dataKey="nome" />
                 <YAxis />
                 <Tooltip />
-                <Legend />
-                <Bar dataKey="eficiencia" fill="#3b82f6" name="Eficiência %" />
+                <Bar dataKey="apontamentos" fill="#3b82f6" name="Apontamentos" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-slate-500 text-center py-8">Sem dados</p>
+            <p className="text-center text-slate-600">Sem dados disponíveis</p>
           )}
-        </div>
+        </Card>
 
-        {/* Custo por Peça */}
-        <div className="card">
-          <h3 className="subsection-title">Custo Médio por Peça</h3>
-          {performanceMoldadores.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={performanceMoldadores}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="nome" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="custoMedioPeca" fill="#f97316" name="Custo (R$)" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-slate-500 text-center py-8">Sem dados</p>
-          )}
-        </div>
+        {/* TABELA: MOLDADORES */}
+        <Card title="👷 Relatório Detalhado - Moldadores">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="p-2 text-left">Moldador</th>
+                <th className="p-2 text-right">Apontamentos</th>
+                <th className="p-2 text-right">Caixas</th>
+                <th className="p-2 text-right">Alumínio (kg)</th>
+                <th className="p-2 text-right">Retorno (kg)</th>
+                <th className="p-2 text-right">Perdas</th>
+                <th className="p-2 text-right">Horas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relatorioMoldadores.map((r) => (
+                <tr key={r.nome} className="border-b hover:bg-slate-50">
+                  <td className="p-2 font-semibold">{r.nome}</td>
+                  <td className="p-2 text-right">{r.apontamentos}</td>
+                  <td className="p-2 text-right">{r.caixas}</td>
+                  <td className="p-2 text-right">{r.aluminio.toFixed(2)}</td>
+                  <td className="p-2 text-right">{r.retorno.toFixed(2)}</td>
+                  <td className="p-2 text-right">
+                    <Badge variant={r.perdas < 5 ? 'success' : 'warning'}>{r.perdas}</Badge>
+                  </td>
+                  <td className="p-2 text-right">{r.horas.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
 
-        {/* Rentabilidade por Produto */}
-        <div className="card">
-          <h3 className="subsection-title">Rentabilidade por Produto</h3>
-          <div className="space-y-3">
-            {produtos.slice(0, 5).map((p) => {
-              const prodsRelacionados = producoes.filter((prod) => prod.produto_id === p.id);
-              const receitaEstimada =
-              const lucro = receitaEstimada - custoTotal;
-
-              return (
-                <div key={p.id} className="p-3 border rounded-lg">
-                  <div className="flex justify-between mb-2">
-                    <span className="font-semibold">{p.codigo}</span>
-                    <span className={`font-bold ${lucro > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      R$ {lucro.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-600 flex justify-between">
-                    <span>Receita: R$ {receitaEstimada.toFixed(2)}</span>
-                    <span>Custo: R$ {custoTotal.toFixed(2)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Resumo Geral */}
-        <div className="card">
-          <h3 className="subsection-title">Resumo Geral</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between py-2 border-b">
-              <span>Total Apontamentos</span>
-              <span className="font-bold">{producoes.length}</span>
+        {/* RESUMO GERAL */}
+        <Card title="📈 Resumo Geral da Produção">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <p className="text-xs text-slate-600">Total Apontamentos</p>
+              <p className="text-2xl font-bold">{producoes.length}</p>
             </div>
-            <div className="flex justify-between py-2 border-b">
-              <span>Total Caixas</span>
-              <span className="font-bold">{producoes.reduce((sum, p) => sum + p.qtde_caixas, 0)}</span>
+            <div className="p-4 bg-green-50 rounded-lg">
+              <p className="text-xs text-slate-600">Total Caixas</p>
+              <p className="text-2xl font-bold">{producoes.reduce((sum, p) => sum + p.qtde_caixas, 0)}</p>
             </div>
-            <div className="flex justify-between py-2 border-b">
-              <span>Total Kg</span>
-              <span className="font-bold">{producoes.reduce((sum, p) => sum + p.aluminio_bruto, 0).toFixed(2)}</span>
+            <div className="p-4 bg-orange-50 rounded-lg">
+              <p className="text-xs text-slate-600">Total Alumínio (kg)</p>
+              <p className="text-2xl font-bold">{producoes.reduce((sum, p) => sum + p.aluminio_bruto, 0).toFixed(0)}</p>
             </div>
-            <div className="flex justify-between py-2 border-b">
-              <span>Custo Total</span>
-              <span className="font-bold">R$ {producoes.reduce((sum, _) => sum + 0, 0).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span>Taxa Perda Média</span>
-              <span className="font-bold">
-                {producoes.length > 0
-                  ? (producoes.reduce((sum, _) => sum + 0, 0) / producoes.length).toFixed(2)
-                  : '0'}
-                %
-              </span>
+            <div className="p-4 bg-red-50 rounded-lg">
+              <p className="text-xs text-slate-600">Total Perdas</p>
+              <p className="text-2xl font-bold">{producoes.reduce((sum, p) => sum + p.perdas_peca, 0)}</p>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
     </Layout>
   );

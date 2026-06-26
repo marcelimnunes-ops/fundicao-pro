@@ -4,6 +4,7 @@ interface FormSelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> 
   label?: string;
   error?: string;
   helperText?: string;
+  placeholder?: string;
   options: Array<{ value: string | number; label: string }>;
 }
 
@@ -11,6 +12,7 @@ export default function FormSelect({
   label,
   error,
   helperText,
+  placeholder,
   options,
   className = '',
   ...props
@@ -30,7 +32,7 @@ export default function FormSelect({
         } ${className}`}
         {...props}
       >
-        {props.placeholder && <option value="">{props.placeholder}</option>}
+        {placeholder && <option value="">{placeholder}</option>}
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}

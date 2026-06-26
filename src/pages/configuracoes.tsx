@@ -67,7 +67,7 @@ export default function ConfiguracoesPage() {
     );
   }
 
-  const configsFiltradas = configs.filter((c) => CONFIG_DESCRICOES[c.chave]);
+  const configsFiltradas = configs.filter((c) => c.chave != null && CONFIG_DESCRICOES[c.chave as string]);
 
   return (
     <Layout title="Configurações do Sistema">
@@ -87,7 +87,7 @@ export default function ConfiguracoesPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="font-semibold text-slate-900">{c.chave}</p>
-                      <p className="text-xs text-slate-600 mt-1">{CONFIG_DESCRICOES[c.chave]}</p>
+                      <p className="text-xs text-slate-600 mt-1">{CONFIG_DESCRICOES[c.chave as string]}</p>
                     </div>
                     {editingKey === c.chave ? (
                       <div className="flex gap-2 items-center">
@@ -100,7 +100,7 @@ export default function ConfiguracoesPage() {
                           autoFocus
                         />
                         <button
-                          onClick={() => handleSave(c.chave, editingValue)}
+                          onClick={() => c.chave && handleSave(c.chave, editingValue)}
                           disabled={saving}
                           className="btn-primary py-1 px-3 text-sm"
                         >
@@ -118,8 +118,7 @@ export default function ConfiguracoesPage() {
                         <span className="font-bold text-lg">{c.valor}</span>
                         <button
                           onClick={() => {
-                            setEditingKey(c.chave);
-                            setEditingValue(c.valor);
+                            if (c.chave) { setEditingKey(c.chave); setEditingValue(c.valor ?? ''); }
                           }}
                           className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
                         >

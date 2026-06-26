@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx';
-
 export interface ImportacaoErro {
   linha: number;
   erro: string;
@@ -27,27 +25,48 @@ export interface FuncionarioImportado {
   nome: string;
   funcao: string;
   salario: number;
-  vale: number;
-  cartao_custo: number;
-  custo_hora: number;
+  cartao_beneficio: number;
+  custo_hora?: number;
 }
 
 export interface ProdutoImportado {
   codigo: string;
   nome: string;
-  descricao: string;
+  descricao?: string;
+  qtd_peca_placa?: number;
+  peso_peca?: number;
+  peso_total_galho?: number;
+  qtd_machos_por_caixa?: number;
+  peso_macho?: number;
+  tipo_material?: string;
+  custo_adicional?: number;
 }
 
 export interface ClienteImportado {
-  nome: string;
+  razao_social: string;
+  nome_fantasia?: string;
   cnpj?: string;
   email?: string;
   telefone?: string;
   cidade?: string;
-  estado?: string;
+  uf?: string;
+}
+
+export interface ImportacaoTodosResult {
+  funcionarios: ImportacaoResult<FuncionarioImportado>;
+  produtos: ImportacaoResult<ProdutoImportado>;
+  clientes: ImportacaoResult<ClienteImportado>;
+  apontamentos: ImportacaoResult<ApontamentoImportado>;
+}
+
+// Dynamic import do XLSX para funcionar no browser
+async function getXLSX() {
+  const mod = await import('xlsx');
+  return mod.default ?? mod;
 }
 
 async function lerExcel(file: File): Promise<Record<string, unknown>[]> {
+  const XLSX = await getXLSX();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -64,18 +83,73 @@ async function lerExcel(file: File): Promise<Record<string, unknown>[]> {
   });
 }
 
+async function lerAba(file: File, abaNome: string): Promise<Record<string, unknown>[]> {
+  const XLSX = await getXLSX();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const workbook = XLSX.read(e.target?.result, { type: 'array' });
+        const wsName = workbook.SheetNames.find(
+          (n: string) => n.toLowerCase().trim() === abaNome.toLowerCase().trim()
+        );
+        if (!wsName) {
+          resolve([]);
+          return;
+        }
+        const ws = workbook.Sheets[wsName];
+        resolve(XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[]);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+export async function listarAbas(file: File): Promise<string[]> {
+  const XLSX = await getXLSX();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target?.result, { type: 'array' });
+        resolve(wb.SheetNames as string[]);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 function str(val: unknown): string {
   return val != null ? String(val).trim() : '';
 }
 
 function num(val: unknown): number {
-  const n = parseFloat(String(val ?? 0));
+  if (val == null || val === '') return 0;
+  const n = parseFloat(String(val).replace(',', '.'));
   return isNaN(n) ? 0 : n;
 }
 
 function toDateStr(val: unknown): string {
   if (!val) throw new Error('Data ausente');
-  const d = new Date(String(val));
+  // Excel serial date number
+  if (typeof val === 'number') {
+    const excelEpoch = new Date(1899, 11, 30);
+    const d = new Date(excelEpoch.getTime() + val * 86400000);
+    return d.toISOString().split('T')[0];
+  }
+  const s = String(val).trim();
+  // DD/MM/YYYY
+  const ptBr = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ptBr) return `${ptBr[3]}-${ptBr[2].padStart(2, '0')}-${ptBr[1].padStart(2, '0')}`;
+  // YYYY-MM-DD already
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
   if (isNaN(d.getTime())) throw new Error(`Data inválida: ${val}`);
   return d.toISOString().split('T')[0];
 }
@@ -90,12 +164,12 @@ export async function importarApontamentos(
     const linha = i + 2;
     try {
       const moldador_nome = str(row['Moldador']);
-      const produto_codigo = str(row['Produto']);
+      const produto_codigo = str(row['Produto'] ?? row['Código Produto'] ?? row['Codigo']);
       if (!moldador_nome) throw new Error('Coluna "Moldador" ausente');
       if (!produto_codigo) throw new Error('Coluna "Produto" ausente');
 
-      const qtde_caixas = Math.round(num(row['Caixas']));
-      const aluminio_bruto = num(row['Alumínio Bruto'] ?? row['Aluminio Bruto']);
+      const qtde_caixas = Math.round(num(row['Caixas'] ?? row['Qtde Caixas'] ?? row['Qtde']));
+      const aluminio_bruto = num(row['Alumínio Bruto'] ?? row['Aluminio Bruto'] ?? row['Aluminio']);
       if (qtde_caixas <= 0) throw new Error('Caixas deve ser maior que 0');
       if (aluminio_bruto <= 0) throw new Error('Alumínio Bruto deve ser maior que 0');
 
@@ -105,10 +179,10 @@ export async function importarApontamentos(
         produto_codigo,
         qtde_caixas,
         aluminio_bruto,
-        peso_retorno: num(row['Peso Retorno']),
-        perdas_peca: Math.round(num(row['Perdas'])),
-        consumo_oleo: num(row['Óleo'] ?? row['Oleo']),
-        tempo_horas: num(row['Horas']),
+        peso_retorno: num(row['Peso Retorno'] ?? row['Retorno']),
+        perdas_peca: Math.round(num(row['Perdas'] ?? row['Perda Pçs'] ?? row['Perda Pcs'])),
+        consumo_oleo: num(row['Óleo'] ?? row['Oleo'] ?? row['Qtde Oleo']),
+        tempo_horas: num(row['Horas'] ?? row['Tempo'] ?? row['Tempo Horas']),
       });
       result.sucesso++;
     } catch (err) {
@@ -124,24 +198,21 @@ export async function importarFuncionarios(
 ): Promise<ImportacaoResult<FuncionarioImportado>> {
   const rows = await lerExcel(file);
   const result: ImportacaoResult<FuncionarioImportado> = { sucesso: 0, erros: [], dados: [] };
-  const funcoesValidas = ['Moldador', 'Ajudante', 'Operador', 'Supervisor'];
 
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
       const nome = str(row['Nome']);
-      const funcao = str(row['Função'] ?? row['Funcao']);
+      const funcao = str(row['Função'] ?? row['Funcao'] ?? row['Cargo']);
       if (!nome) throw new Error('Coluna "Nome" ausente');
-      if (!funcoesValidas.includes(funcao))
-        throw new Error(`Função inválida. Válidas: ${funcoesValidas.join(', ')}`);
+      if (!funcao) throw new Error('Coluna "Função" ausente');
 
       result.dados.push({
         nome,
         funcao,
         salario: num(row['Salário'] ?? row['Salario']),
-        vale: num(row['Vale']),
-        cartao_custo: num(row['Cartão Custo'] ?? row['Cartao Custo']),
-        custo_hora: num(row['Custo/Hora']),
+        cartao_beneficio: num(row['Cartão'] ?? row['Cartao'] ?? row['Cartão Custo'] ?? row['Cartao Custo'] ?? row['Vale']),
+        custo_hora: num(row['Custo/h'] ?? row['Custo/Hora'] ?? row['Custo Hora']) || undefined,
       });
       result.sucesso++;
     } catch (err) {
@@ -161,15 +232,38 @@ export async function importarProdutos(
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      const codigo = str(row['Código'] ?? row['Codigo']);
-      const nome = str(row['Nome']);
-      if (!codigo) throw new Error('Coluna "Código" ausente');
-      if (!nome) throw new Error('Coluna "Nome" ausente');
+      // Suporta coluna "Cód Placa - Descrição" (formato do Excel original)
+      let codigo = str(row['Código'] ?? row['Codigo'] ?? row['Cód Placa - Descrição'] ?? row['Cod Placa - Descricao']);
+      let nome = str(row['Nome'] ?? row['Descrição'] ?? row['Descricao']);
+
+      // Se o código contém o nome (formato "0429013 BICA DUPLA"), separar
+      if (codigo && !nome) {
+        const parts = codigo.split(' ');
+        if (parts.length > 1) {
+          codigo = parts[0];
+          nome = parts.slice(1).join(' ');
+        }
+      }
+
+      if (!codigo) throw new Error('Código ausente');
+      if (!nome) throw new Error('Nome ausente');
+
+      const tipo_raw = str(row['Tipo de Material'] ?? row['Material'] ?? row['Tipo']);
+      const tipo_material = tipo_raw.toLowerCase().includes('lingote') ? 'lingote'
+        : tipo_raw.toLowerCase().includes('sucata') ? 'sucata'
+        : tipo_raw.toLowerCase().includes('mistura') ? 'mistura'
+        : undefined;
 
       result.dados.push({
-        codigo,
+        codigo: codigo.toUpperCase(),
         nome,
-        descricao: str(row['Descrição'] ?? row['Descricao']),
+        qtd_peca_placa: Math.round(num(row['Qdt Peça Placa'] ?? row['Qtde Peca Placa'] ?? row['Qtde Pecas'])) || undefined,
+        peso_peca: num(row['Peso Pç'] ?? row['Peso Peca'] ?? row['Peso Peça']) || undefined,
+        peso_total_galho: num(row['Peso Total Galho'] ?? row['Peso Galho']) || undefined,
+        qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'] ?? row['Qtde Machos'] ?? row['Machos'])) || undefined,
+        peso_macho: num(row['Peso Macho']) || undefined,
+        tipo_material: tipo_material,
+        custo_adicional: num(row['Usinagem Pintura Outros'] ?? row['Custo Adicional'] ?? row['Usinagem']) || undefined,
       });
       result.sucesso++;
     } catch (err) {
@@ -189,22 +283,17 @@ export async function importarClientes(
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      const nome = str(row['Nome']);
-      if (!nome) throw new Error('Coluna "Nome" ausente');
-
-      const cnpj = str(row['CNPJ']);
-      const email = str(row['Email']);
-      const telefone = str(row['Telefone']);
-      const cidade = str(row['Cidade']);
-      const estado = str(row['Estado']);
+      const razao_social = str(row['Nome'] ?? row['Razão Social'] ?? row['Razao Social'] ?? row['Cliente']);
+      if (!razao_social) throw new Error('Nome/Razão Social ausente');
 
       result.dados.push({
-        nome,
-        cnpj: cnpj || undefined,
-        email: email || undefined,
-        telefone: telefone || undefined,
-        cidade: cidade || undefined,
-        estado: estado || undefined,
+        razao_social,
+        nome_fantasia: str(row['Nome Fantasia']) || undefined,
+        cnpj: str(row['CNPJ']) || undefined,
+        email: str(row['Email']) || undefined,
+        telefone: str(row['Telefone']) || undefined,
+        cidade: str(row['Cidade']) || undefined,
+        uf: str(row['Estado'] ?? row['UF']) || undefined,
       });
       result.sucesso++;
     } catch (err) {
@@ -213,4 +302,112 @@ export async function importarClientes(
   });
 
   return result;
+}
+
+// Importa a planilha inteira (todas as abas conhecidas)
+export async function importarPlanilhaCompleta(
+  file: File
+): Promise<ImportacaoTodosResult> {
+  const [profRows, prodRows, apontRows] = await Promise.all([
+    lerAba(file, 'Profissionais'),
+    lerAba(file, 'Produtos'),
+    lerAba(file, 'Produção'),
+  ]);
+
+  const funcionarios: ImportacaoResult<FuncionarioImportado> = { sucesso: 0, erros: [], dados: [] };
+  const produtos: ImportacaoResult<ProdutoImportado> = { sucesso: 0, erros: [], dados: [] };
+  const clientes: ImportacaoResult<ClienteImportado> = { sucesso: 0, erros: [], dados: [] };
+  const apontamentos: ImportacaoResult<ApontamentoImportado> = { sucesso: 0, erros: [], dados: [] };
+
+  // Profissionais
+  profRows.forEach((row, i) => {
+    const linha = i + 2;
+    try {
+      const nome = str(row['Nome']);
+      if (!nome) throw new Error('Nome ausente');
+      funcionarios.dados.push({
+        nome,
+        funcao: str(row['Função'] ?? row['Funcao']) || 'Ajudante',
+        salario: num(row['Salário'] ?? row['Salario']),
+        cartao_beneficio: num(row['Cartão'] ?? row['Cartao']),
+        custo_hora: num(row['Custo/h']) || undefined,
+      });
+      funcionarios.sucesso++;
+    } catch (err) {
+      funcionarios.erros.push({ linha, erro: err instanceof Error ? err.message : 'Erro' });
+    }
+  });
+
+  // Clientes únicos extraídos da coluna "Cliente" dos produtos
+  const clientesVistos = new Set<string>();
+  prodRows.forEach((row) => {
+    const nome = str(row['Cliente']);
+    if (nome && !clientesVistos.has(nome)) {
+      clientesVistos.add(nome);
+      clientes.dados.push({ razao_social: nome });
+      clientes.sucesso++;
+    }
+  });
+
+  // Produtos
+  prodRows.forEach((row, i) => {
+    const linha = i + 2;
+    try {
+      let codigo = str(row['Código'] ?? row['Codigo'] ?? row['Cód Placa - Descrição']);
+      let nome = str(row['Nome']);
+      if (codigo && !nome) {
+        const parts = codigo.split(' ');
+        codigo = parts[0];
+        nome = parts.slice(1).join(' ');
+      }
+      if (!codigo || !nome) throw new Error('Código/Nome ausente');
+      const tipo_raw = str(row['Tipo de Material'] ?? '');
+      const tipo_material = tipo_raw.toLowerCase().includes('lingote') ? 'lingote' as const
+        : tipo_raw.toLowerCase().includes('sucata') ? 'sucata' as const
+        : 'mistura' as const;
+      produtos.dados.push({
+        codigo: codigo.toUpperCase(),
+        nome,
+        qtd_peca_placa: Math.round(num(row['Qdt Peça Placa'])) || undefined,
+        peso_peca: num(row['Peso Pç']) || undefined,
+        peso_total_galho: num(row['Peso Total Galho']) || undefined,
+        qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'])) || undefined,
+        peso_macho: num(row['Peso Macho']) || undefined,
+        tipo_material,
+        custo_adicional: num(row['Usinagem Pintura Outros']) || undefined,
+      });
+      produtos.sucesso++;
+    } catch (err) {
+      produtos.erros.push({ linha, erro: err instanceof Error ? err.message : 'Erro' });
+    }
+  });
+
+  // Apontamentos (da aba Produção)
+  apontRows.forEach((row, i) => {
+    const linha = i + 2;
+    try {
+      const moldador_nome = str(row['Moldador']);
+      const produto_nome = str(row['Produto']);
+      if (!moldador_nome || !produto_nome) throw new Error('Moldador/Produto ausente');
+      const qtde_caixas = Math.round(num(row['Qtde Cx Produzida'] ?? row['Qtde']));
+      const aluminio_bruto = num(row['Aluminio Bruto'] ?? row['Alumínio Bruto']);
+      if (qtde_caixas <= 0 || aluminio_bruto <= 0) throw new Error('Caixas/Alumínio inválidos');
+      apontamentos.dados.push({
+        data: toDateStr(row['Data']),
+        moldador_nome,
+        produto_codigo: produto_nome,
+        qtde_caixas,
+        aluminio_bruto,
+        peso_retorno: num(row['Retorno Aluminio']),
+        perdas_peca: Math.round(num(row['Perda Pçs'] ?? row['Perda Pcs'])),
+        consumo_oleo: num(row['Qtde Oleo']),
+        tempo_horas: num(row['Tempo']),
+      });
+      apontamentos.sucesso++;
+    } catch (err) {
+      apontamentos.erros.push({ linha, erro: err instanceof Error ? err.message : 'Erro' });
+    }
+  });
+
+  return { funcionarios, produtos, clientes, apontamentos };
 }

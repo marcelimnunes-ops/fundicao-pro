@@ -1,26 +1,40 @@
 import { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
-import { Card, Badge, Modal, Alert } from '@/components/ui';
+import { Card, Badge, Modal } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import type { Cliente } from '@/lib/types';
 
 interface FormData {
-  nome: string;
+  razao_social: string;
+  nome_fantasia: string;
   cnpj: string;
   email: string;
   telefone: string;
+  celular: string;
   contato_nome: string;
-  margem_padrao: string;
+  cidade: string;
+  uf: string;
+  prazo_pagamento_dias: string;
+  observacoes: string;
 }
 
 const FORM_VAZIO: FormData = {
-  nome: '',
+  razao_social: '',
+  nome_fantasia: '',
   cnpj: '',
   email: '',
   telefone: '',
+  celular: '',
   contato_nome: '',
-  margem_padrao: '20',
+  cidade: '',
+  uf: '',
+  prazo_pagamento_dias: '30',
+  observacoes: '',
 };
+
+function nomeCurto(c: Cliente) {
+  return c.nome_fantasia ?? c.razao_social;
+}
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -32,13 +46,11 @@ export default function ClientesPage() {
   const [erro, setErro] = useState('');
   const [success, setSuccess] = useState('');
 
-  useEffect(() => {
-    carregar();
-  }, []);
+  useEffect(() => { carregar(); }, []);
 
   const carregar = async () => {
     setLoading(true);
-    const { data } = await supabase.from('clientes').select('*').order('nome');
+    const { data } = await supabase.from('clientes').select('*').order('razao_social');
     setClientes((data as Cliente[]) || []);
     setLoading(false);
   };
@@ -53,29 +65,39 @@ export default function ClientesPage() {
   const abrirEditar = (c: Cliente) => {
     setEditando(c);
     setFormData({
-      nome: c.nome,
+      razao_social: c.razao_social,
+      nome_fantasia: c.nome_fantasia ?? '',
       cnpj: c.cnpj ?? '',
       email: c.email ?? '',
       telefone: c.telefone ?? '',
+      celular: c.celular ?? '',
       contato_nome: c.contato_nome ?? '',
-      margem_padrao: String(c.margem_padrao),
+      cidade: c.cidade ?? '',
+      uf: c.uf ?? '',
+      prazo_pagamento_dias: String(c.prazo_pagamento_dias ?? 30),
+      observacoes: c.observacoes ?? '',
     });
     setErro('');
     setShowModal(true);
   };
 
   const handleSalvar = async () => {
-    if (!formData.nome.trim()) { setErro('Nome é obrigatório'); return; }
+    if (!formData.razao_social.trim()) { setErro('Razão Social é obrigatória'); return; }
     setSalvando(true);
     setErro('');
 
     const payload = {
-      nome: formData.nome.trim(),
+      razao_social: formData.razao_social.trim(),
+      nome_fantasia: formData.nome_fantasia.trim() || null,
       cnpj: formData.cnpj.trim() || null,
       email: formData.email.trim() || null,
       telefone: formData.telefone.trim() || null,
+      celular: formData.celular.trim() || null,
       contato_nome: formData.contato_nome.trim() || null,
-      margem_padrao: parseFloat(formData.margem_padrao) || 20,
+      cidade: formData.cidade.trim() || null,
+      uf: formData.uf.trim().toUpperCase() || null,
+      prazo_pagamento_dias: parseInt(formData.prazo_pagamento_dias) || 30,
+      observacoes: formData.observacoes.trim() || null,
     };
 
     try {
@@ -84,13 +106,13 @@ export default function ClientesPage() {
           .from('clientes').update(payload).eq('id', editando.id).select().single();
         if (error) throw error;
         setClientes((prev) => prev.map((c) => (c.id === editando.id ? (data as Cliente) : c)));
-        setSuccess('Cliente atualizado com sucesso!');
+        setSuccess('Cliente atualizado!');
       } else {
         const { data, error } = await supabase
-          .from('clientes').insert([payload]).select().single();
+          .from('clientes').insert([{ ...payload, ativo: true }]).select().single();
         if (error) throw error;
         setClientes((prev) => [...prev, data as Cliente]);
-        setSuccess('Cliente criado com sucesso!');
+        setSuccess('Cliente criado!');
       }
       setShowModal(false);
       setTimeout(() => setSuccess(''), 3000);
@@ -106,12 +128,17 @@ export default function ClientesPage() {
     const { error } = await supabase.from('clientes').delete().eq('id', id);
     if (error) { alert(`Erro: ${error.message}`); return; }
     setClientes((prev) => prev.filter((c) => c.id !== id));
-    setSuccess('Cliente removido.');
-    setTimeout(() => setSuccess(''), 3000);
   };
 
-  const set = (field: keyof FormData) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
+  const handleToggleAtivo = async (c: Cliente) => {
+    const { data, error } = await supabase
+      .from('clientes').update({ ativo: !c.ativo }).eq('id', c.id).select().single();
+    if (error) { alert(`Erro: ${error.message}`); return; }
+    setClientes((prev) => prev.map((x) => (x.id === c.id ? (data as Cliente) : x)));
+  };
+
+  const setF = (field: keyof FormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setFormData((prev) => ({ ...prev, [field]: e.target.value }));
 
   if (loading) {
@@ -130,42 +157,36 @@ export default function ClientesPage() {
           <button className="btn-primary" onClick={abrirNovo}>+ Novo Cliente</button>
         </div>
 
-        {success && <Alert type="success" message={success} />}
+        {success && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded text-green-700 text-sm font-semibold">{success}</div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {clientes.map((c) => (
-            <Card key={c.id} title={c.nome}>
+            <Card key={c.id} title={nomeCurto(c)}>
               <div className="space-y-2 text-sm">
+                {c.nome_fantasia && c.razao_social !== c.nome_fantasia && (
+                  <p className="text-xs text-slate-500">{c.razao_social}</p>
+                )}
                 {c.cnpj && (
                   <div>
                     <p className="text-slate-500 text-xs">CNPJ</p>
-                    <p className="font-semibold">{c.cnpj}</p>
+                    <p className="font-mono text-xs">{c.cnpj}</p>
                   </div>
                 )}
-                {c.email && (
-                  <div>
-                    <p className="text-slate-500 text-xs">Email</p>
-                    <p className="font-semibold">{c.email}</p>
-                  </div>
-                )}
-                {c.telefone && (
-                  <div>
-                    <p className="text-slate-500 text-xs">Telefone</p>
-                    <p className="font-semibold">{c.telefone}</p>
-                  </div>
+                {c.email && <p className="text-xs text-slate-600">{c.email}</p>}
+                {c.telefone && <p className="text-xs text-slate-600">{c.telefone}</p>}
+                {c.cidade && (
+                  <p className="text-xs text-slate-500">{c.cidade}{c.uf ? ` — ${c.uf}` : ''}</p>
                 )}
                 <div className="pt-2 border-t flex items-center justify-between">
-                  <div>
-                    <p className="text-slate-500 text-xs">Margem Padrão</p>
-                    <p className="font-bold text-lg text-orange-600">{c.margem_padrao}%</p>
-                  </div>
-                  <Badge variant={c.ativo ? 'success' : 'danger'}>
-                    {c.ativo ? 'Ativo' : 'Inativo'}
-                  </Badge>
+                  <p className="text-xs text-slate-500">Prazo: {c.prazo_pagamento_dias ?? 30} dias</p>
+                  <Badge variant={c.ativo ? 'success' : 'danger'}>{c.ativo ? 'Ativo' : 'Inativo'}</Badge>
                 </div>
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-2 pt-1">
                   <button onClick={() => abrirEditar(c)} className="flex-1 btn-secondary text-xs py-1">Editar</button>
-                  <button onClick={() => handleDeletar(c.id)} className="flex-1 btn-danger text-xs py-1">Remover</button>
+                  <button onClick={() => handleToggleAtivo(c)} className="text-yellow-600 hover:text-yellow-800 text-xs font-semibold px-2">{c.ativo ? 'Inativar' : 'Ativar'}</button>
+                  <button onClick={() => handleDeletar(c.id)} className="text-red-600 hover:text-red-800 text-xs font-semibold px-2">✕</button>
                 </div>
               </div>
             </Card>
@@ -196,32 +217,52 @@ export default function ClientesPage() {
               <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{erro}</div>
             )}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">
-                Nome <span className="text-red-500">*</span>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">
+                Razão Social / Nome <span className="text-red-500">*</span>
               </label>
-              <input className="form-input" value={formData.nome} onChange={set('nome')} />
+              <input className="form-input" value={formData.razao_social} onChange={setF('razao_social')} />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Nome Fantasia / Apelido</label>
+              <input className="form-input" value={formData.nome_fantasia} onChange={setF('nome_fantasia')} placeholder="Como é conhecido internamente" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">CNPJ</label>
-                <input className="form-input" value={formData.cnpj} onChange={set('cnpj')} placeholder="XX.XXX.XXX/XXXX-XX" />
+                <label className="block text-sm font-semibold text-slate-700 mb-1">CNPJ</label>
+                <input className="form-input" value={formData.cnpj} onChange={setF('cnpj')} placeholder="XX.XXX.XXX/XXXX-XX" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
-                <input type="email" className="form-input" value={formData.email} onChange={set('email')} />
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Prazo Pagamento (dias)</label>
+                <input type="number" min="0" className="form-input" value={formData.prazo_pagamento_dias} onChange={setF('prazo_pagamento_dias')} />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Telefone</label>
-                <input className="form-input" value={formData.telefone} onChange={set('telefone')} />
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                <input type="email" className="form-input" value={formData.email} onChange={setF('email')} />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Contato</label>
-                <input className="form-input" value={formData.contato_nome} onChange={set('contato_nome')} />
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Telefone</label>
+                <input className="form-input" value={formData.telefone} onChange={setF('telefone')} />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Margem Padrão (%)</label>
-                <input type="number" step="0.5" min="0" className="form-input" value={formData.margem_padrao} onChange={set('margem_padrao')} />
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Celular</label>
+                <input className="form-input" value={formData.celular} onChange={setF('celular')} />
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Contato (nome)</label>
+                <input className="form-input" value={formData.contato_nome} onChange={setF('contato_nome')} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Cidade</label>
+                <input className="form-input" value={formData.cidade} onChange={setF('cidade')} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">UF</label>
+                <input maxLength={2} className="form-input" value={formData.uf} onChange={setF('uf')} placeholder="SP" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Observações</label>
+              <textarea className="form-input" rows={2} value={formData.observacoes} onChange={setF('observacoes')} />
             </div>
           </div>
         </Modal>

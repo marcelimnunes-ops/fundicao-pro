@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
 import { Card, FormInput, Badge } from '@/components/ui';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function RelatoriosAvancadosPage() {
   const { producoes, funcionarios, produtos, loading } = useProducao();

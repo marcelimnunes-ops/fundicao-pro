@@ -1,6 +1,6 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import { Card, FormInput, Button } from '@/components/ui';
+import { Card, FormInput } from '@/components/ui';
 import { useState } from 'react';
 
 export default function ApontamentoPage() {

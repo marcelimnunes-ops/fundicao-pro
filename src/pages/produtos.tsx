@@ -2,7 +2,6 @@ import { useState } from 'react';
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
 import { supabase } from '@/lib/supabase';
-import { Produto } from '@/lib/types';
 
 export default function ProdutosPage() {
   const { produtos, loading, error } = useProducao();

@@ -1,6 +1,5 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import { formatarMoeda, formatarPeso } from '@/lib/calculations';
 import { Card, FormInput, Button } from '@/components/ui';
 import { useState } from 'react';
 

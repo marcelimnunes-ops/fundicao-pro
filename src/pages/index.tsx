@@ -13,7 +13,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { formatarMoeda, formatarPercentual } from '@/lib/calculations';
+import { formatarMoeda } from '@/lib/calculations';
 
 interface DashboardData {
   totalPecas: number;

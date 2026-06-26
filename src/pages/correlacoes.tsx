@@ -1,6 +1,6 @@
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
-import { Card, Badge } from '@/components/ui';
+import { Card } from '@/components/ui';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter } from 'recharts';
 
 export default function CorrelacoesPage() {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Layout from '@/components/Layout';
 import { useClientes } from '@/hooks/useClientes';
-import { Button, Card, Modal, FormInput, FormSelect, Alert } from '@/components/ui';
+import { Button, Card, FormInput, FormSelect, Alert } from '@/components/ui';
 
 export default function ClientesPage() {
   const { clientes, criarCliente, loading, error } = useClientes();

@@ -72,6 +72,13 @@ export function useForm<T extends Record<string, any>>(
     }));
   }, []);
 
+  const handleSetTouched = useCallback((field: string, value: boolean) => {
+    setTouched((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }, []);
+
   const resetForm = useCallback(() => {
     setValues(initialValues);
     setErrors({});
@@ -94,7 +101,7 @@ export function useForm<T extends Record<string, any>>(
     touched,
     setValue,
     setError,
-    setTouched,
+    setTouched: handleSetTouched,
     handleChange,
     handleBlur,
     resetForm,

@@ -1,6 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { useProducao } from '@/hooks/useProducao';
 import { Card, Badge } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import {
@@ -28,79 +27,85 @@ const TIPOS: { value: TipoImportacao; label: string; descricao: string }[] = [
   { value: 'clientes', label: 'Clientes', descricao: 'Nome | CNPJ | Email | Telefone | Cidade | Estado' },
 ];
 
-// ── tipos de log ─────────────────────────────────────────
-type LogLevel = 'info' | 'ok' | 'skip' | 'warn' | 'error';
+// ── log ─────────────────────────────────────────────────
+type LogLevel = 'info' | 'ok' | 'skip' | 'warn' | 'error' | 'section';
+interface LogEntry { nivel: LogLevel; msg: string }
+const ICONE: Record<LogLevel, string> = { info: '→', ok: '✓', skip: '↩', warn: '⚠', error: '✗', section: '──' };
+const COR: Record<LogLevel, string> = {
+  info: 'text-slate-400',
+  ok: 'text-green-400 font-semibold',
+  skip: 'text-yellow-400',
+  warn: 'text-orange-400',
+  error: 'text-red-400 font-semibold',
+  section: 'text-cyan-400 font-bold',
+};
 
-interface LogEntry {
-  nivel: LogLevel;
-  msg: string;
-}
-
-interface ProgressoState {
+// ── progresso ────────────────────────────────────────────
+interface Progresso {
   total: number;
   atual: number;
   fase: string;
   log: LogEntry[];
   concluido: boolean;
-  resumo: { inseridos: number; pulados: number; erros: number };
+  inseridos: number;
+  pulados: number;
+  erros: number;
 }
 
-const PROG_VAZIO: ProgressoState = {
-  total: 0, atual: 0, fase: '', log: [], concluido: false,
-  resumo: { inseridos: 0, pulados: 0, erros: 0 },
-};
+// ── hook de referência mutável para o log (evita re-renders desnecessários) ──
+function useProgressoRef() {
+  const ref = useRef<Progresso>({
+    total: 0, atual: 0, fase: '', log: [], concluido: false,
+    inseridos: 0, pulados: 0, erros: 0,
+  });
+  const [, forceRender] = useState(0);
+  const tick = () => forceRender((n) => n + 1);
 
-const ICONE: Record<LogLevel, string> = { info: '→', ok: '✓', skip: '↩', warn: '⚠', error: '✗' };
-const COR: Record<LogLevel, string> = {
-  info: 'text-slate-400',
-  ok: 'text-green-600 font-semibold',
-  skip: 'text-yellow-600',
-  warn: 'text-orange-500',
-  error: 'text-red-600 font-semibold',
-};
+  const set = (upd: Partial<Progresso>) => {
+    ref.current = { ...ref.current, ...upd };
+    tick();
+  };
+
+  const log = (nivel: LogLevel, msg: string) => {
+    ref.current.log = [...ref.current.log, { nivel, msg }];
+    tick();
+  };
+
+  return { ref, set, log };
+}
 
 export default function ImportacaoPage() {
-  const { funcionarios: funcsCache, produtos: prodsCache } = useProducao();
   const [tipo, setTipo] = useState<TipoImportacao>('tudo');
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [abasDetectadas, setAbasDetectadas] = useState<string[]>([]);
   const [processando, setProcessando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
   const [resultado, setResultado] = useState<ImportacaoResult<unknown> | null>(null);
   const [resultadoTodos, setResultadoTodos] = useState<ImportacaoTodosResult | null>(null);
-  const [progresso, setProgresso] = useState<ProgressoState | null>(null);
+  const [showProgresso, setShowProgresso] = useState(false);
   const [erroMsg, setErroMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const prog = useProgressoRef();
 
-  // ── helper para atualizar progresso e auto-scroll ─────
-  const atualizarProgresso = useCallback((upd: (prev: ProgressoState) => ProgressoState) => {
-    setProgresso((prev) => {
-      const next = upd(prev ?? PROG_VAZIO);
-      // auto-scroll log
-      setTimeout(() => {
-        if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-      }, 20);
-      return next;
-    });
-  }, []);
+  // auto-scroll do log
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  });
 
-  const addLog = useCallback((nivel: LogLevel, msg: string) => {
-    atualizarProgresso((p) => ({ ...p, log: [...p.log, { nivel, msg }] }));
-  }, [atualizarProgresso]);
-
-  // ── leitura/validação do arquivo ──────────────────────
+  // ── leitura do arquivo ───────────────────────────────
   const handleArquivo = async (file: File) => {
     setArquivo(file);
     setResultado(null);
     setResultadoTodos(null);
-    setProgresso(null);
+    setShowProgresso(false);
     setErroMsg('');
     try {
       const abas = await listarAbas(file);
       setAbasDetectadas(abas);
       await processarArquivo(file, tipo);
     } catch {
-      setErroMsg('Erro ao ler arquivo. Verifique se é um arquivo Excel válido (.xlsx, .xls).');
+      setErroMsg('Erro ao ler arquivo. Verifique se é um arquivo Excel válido.');
     }
   };
 
@@ -108,7 +113,7 @@ export default function ImportacaoPage() {
     setProcessando(true);
     setResultado(null);
     setResultadoTodos(null);
-    setProgresso(null);
+    setShowProgresso(false);
     setErroMsg('');
     try {
       if (tipoAtual === 'tudo') {
@@ -133,101 +138,91 @@ export default function ImportacaoPage() {
     setTipo(novoTipo);
     setResultado(null);
     setResultadoTodos(null);
-    setProgresso(null);
+    setShowProgresso(false);
     setErroMsg('');
     if (arquivo) await processarArquivo(arquivo, novoTipo);
   };
 
-  // ── núcleo de importação com progresso ────────────────
+  // ── núcleo de importação ─────────────────────────────
+  // Todas as inserções passam por aqui com controle de progresso
 
-  async function importarFuncionariosComProgresso(rows: FuncionarioImportado[]) {
-    atualizarProgresso(() => ({
-      ...PROG_VAZIO, total: rows.length, fase: 'Funcionários', log: [],
-    }));
-
-    // busca nomes existentes
+  async function salvarFuncionarios(rows: FuncionarioImportado[]) {
+    prog.log('section', `── Funcionários (${rows.length}) ──`);
     const { data: existing } = await supabase.from('funcionarios').select('nome');
-    const nomeSet = new Set((existing ?? []).map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-
-    let ins = 0, pul = 0, err = 0;
+    if (!existing) { prog.log('error', 'Falha ao buscar funcionários existentes'); return; }
+    const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      atualizarProgresso((p) => ({ ...p, atual: i + 1 }));
+      prog.set({ atual: prog.ref.current.atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
 
-      if (nomeSet.has(r.nome.trim().toLowerCase())) {
-        addLog('skip', `[${i + 1}/${rows.length}] PULOU — já existe: ${r.nome}`);
-        pul++;
+      if (vistos.has(r.nome.trim().toLowerCase())) {
+        prog.log('skip', `[F${i + 1}] Pulado (já existe): ${r.nome}`);
+        prog.set({ pulados: prog.ref.current.pulados + 1 });
         continue;
       }
 
-      addLog('info', `[${i + 1}/${rows.length}] Inserindo ${r.nome} (${r.funcao})…`);
+      prog.log('info', `[F${i + 1}] Inserindo: ${r.nome} — ${r.funcao}…`);
       const { error } = await supabase.from('funcionarios').insert({
-        nome: r.nome, funcao: r.funcao, salario: r.salario,
-        cartao_beneficio: r.cartao_beneficio, ativo: true,
+        nome: r.nome,
+        funcao: r.funcao,
+        salario: r.salario,
+        cartao_beneficio: r.cartao_beneficio ?? 0,
+        ativo: true,
       });
 
       if (error) {
-        addLog('error', `[${i + 1}] ERRO ${r.nome}: ${error.message}`);
-        err++;
+        prog.log('error', `[F${i + 1}] ERRO: ${r.nome} → ${error.message}`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
       } else {
-        addLog('ok', `[${i + 1}] OK — ${r.nome}`);
-        nomeSet.add(r.nome.trim().toLowerCase());
-        ins++;
+        prog.log('ok', `[F${i + 1}] OK — ${r.nome}`);
+        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
+        vistos.add(r.nome.trim().toLowerCase());
       }
     }
-
-    atualizarProgresso((p) => ({
-      ...p, concluido: true, resumo: { inseridos: ins, pulados: pul, erros: err },
-    }));
-    return { ins, pul, err };
   }
 
-  async function importarClientesComProgresso(rows: ClienteImportado[]) {
-    atualizarProgresso((p) => ({
-      ...p, fase: 'Clientes', log: [...p.log, { nivel: 'info', msg: '── Clientes ──' }],
-      total: p.total, atual: p.atual,
-    }));
-
+  async function salvarClientes(rows: ClienteImportado[]) {
+    prog.log('section', `── Clientes (${rows.length}) ──`);
     const { data: existing } = await supabase.from('clientes').select('razao_social');
-    const nomeSet = new Set((existing ?? []).map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
-
-    let ins = 0, pul = 0, err = 0;
-    const baseAtual = (await getCurrentAtual());
+    if (!existing) { prog.log('error', 'Falha ao buscar clientes existentes'); return; }
+    const vistos = new Set(existing.map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      atualizarProgresso((p) => ({ ...p, atual: baseAtual + i + 1 }));
+      prog.set({ atual: prog.ref.current.atual + 1, fase: `Clientes ${i + 1}/${rows.length}` });
 
-      if (nomeSet.has(r.razao_social.trim().toLowerCase())) {
-        addLog('skip', `[C${i + 1}/${rows.length}] PULOU — já existe: ${r.razao_social}`);
-        pul++;
+      if (vistos.has(r.razao_social.trim().toLowerCase())) {
+        prog.log('skip', `[C${i + 1}] Pulado (já existe): ${r.razao_social}`);
+        prog.set({ pulados: prog.ref.current.pulados + 1 });
         continue;
       }
 
-      addLog('info', `[C${i + 1}/${rows.length}] Inserindo cliente: ${r.razao_social}…`);
+      prog.log('info', `[C${i + 1}] Inserindo: ${r.razao_social}…`);
       const { error } = await supabase.from('clientes').insert({
-        razao_social: r.razao_social, nome_fantasia: r.nome_fantasia ?? null,
-        cnpj: r.cnpj ?? null, email: r.email ?? null, telefone: r.telefone ?? null,
-        cidade: r.cidade ?? null, uf: r.uf ?? null, ativo: true,
+        razao_social: r.razao_social,
+        nome_fantasia: r.nome_fantasia ?? null,
+        cnpj: r.cnpj ?? null,
+        email: r.email ?? null,
+        telefone: r.telefone ?? null,
+        cidade: r.cidade ?? null,
+        uf: r.uf ?? null,
+        ativo: true,
       });
 
       if (error) {
-        addLog('error', `[C${i + 1}] ERRO ${r.razao_social}: ${error.message}`);
-        err++;
+        prog.log('error', `[C${i + 1}] ERRO: ${r.razao_social} → ${error.message}`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
       } else {
-        addLog('ok', `[C${i + 1}] OK — ${r.razao_social}`);
-        nomeSet.add(r.razao_social.trim().toLowerCase());
-        ins++;
+        prog.log('ok', `[C${i + 1}] OK — ${r.razao_social}`);
+        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
+        vistos.add(r.razao_social.trim().toLowerCase());
       }
     }
-    return { ins, pul, err };
   }
 
-  async function importarProdutosComProgresso(rows: ProdutoImportado[], baseAtual: number) {
-    atualizarProgresso((p) => ({
-      ...p, fase: 'Produtos', log: [...p.log, { nivel: 'info', msg: '── Produtos ──' }],
-    }));
+  async function salvarProdutos(rows: ProdutoImportado[]) {
+    prog.log('section', `── Produtos (${rows.length}) ──`);
 
     // busca clientes para resolver FK
     const { data: clientesDB } = await supabase.from('clientes').select('id, razao_social, nome_fantasia');
@@ -238,192 +233,183 @@ export default function ImportacaoPage() {
     }
 
     const { data: existing } = await supabase.from('produtos').select('codigo');
-    const codigoSet = new Set((existing ?? []).map((r: { codigo: string }) => r.codigo.trim().toLowerCase()));
-
-    let ins = 0, pul = 0, err = 0;
+    if (!existing) { prog.log('error', 'Falha ao buscar produtos existentes'); return; }
+    const vistos = new Set(existing.map((r: { codigo: string }) => r.codigo.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      atualizarProgresso((p) => ({ ...p, atual: baseAtual + i + 1 }));
+      const r = rows[i] as ProdutoImportado & { cliente_nome?: string };
+      prog.set({ atual: prog.ref.current.atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
 
-      if (codigoSet.has(r.codigo.trim().toLowerCase())) {
-        addLog('skip', `[P${i + 1}/${rows.length}] PULOU — código já existe: ${r.codigo}`);
-        pul++;
+      if (vistos.has(r.codigo.trim().toLowerCase())) {
+        prog.log('skip', `[P${i + 1}] Pulado (já existe): ${r.codigo}`);
+        prog.set({ pulados: prog.ref.current.pulados + 1 });
         continue;
       }
 
-      // resolve cliente_id
+      // resolve cliente_id se tiver campo cliente_nome
       let clienteId: string | null = null;
-      if ((r as { cliente_nome?: string }).cliente_nome) {
-        const cn = ((r as { cliente_nome?: string }).cliente_nome ?? '').trim().toLowerCase();
-        clienteId = clienteMap.get(cn) ?? null;
-        if (!clienteId) addLog('warn', `[P${i + 1}] Cliente não encontrado: "${(r as { cliente_nome?: string }).cliente_nome}"`);
+      if (r.cliente_nome) {
+        clienteId = clienteMap.get(r.cliente_nome.trim().toLowerCase()) ?? null;
+        if (!clienteId) prog.log('warn', `[P${i + 1}] Cliente não encontrado: "${r.cliente_nome}"`);
       }
 
-      addLog('info', `[P${i + 1}/${rows.length}] Inserindo produto: ${r.codigo} — ${r.nome}…`);
-
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { cliente_nome: _cn, ...payload } = r as ProdutoImportado & { cliente_nome?: string };
+      prog.log('info', `[P${i + 1}] Inserindo: ${r.codigo} — ${r.nome}…`);
       const { error } = await supabase.from('produtos').insert({
-        ...payload,
+        codigo: r.codigo,
+        nome: r.nome,
+        descricao: r.descricao ?? null,
+        qtd_peca_placa: r.qtd_peca_placa ?? null,
+        peso_peca: r.peso_peca ?? null,
+        peso_total_galho: r.peso_total_galho ?? null,
+        qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? null,
+        peso_macho: r.peso_macho ?? null,
+        tipo_material: r.tipo_material ?? 'sucata',
+        custo_adicional: r.custo_adicional ?? 0,
         cliente_id: clienteId,
         ativo: true,
       });
 
       if (error) {
-        addLog('error', `[P${i + 1}] ERRO ${r.codigo}: ${error.message}`);
-        err++;
+        prog.log('error', `[P${i + 1}] ERRO: ${r.codigo} → ${error.message}`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
       } else {
-        addLog('ok', `[P${i + 1}] OK — ${r.codigo} (${r.nome})`);
-        codigoSet.add(r.codigo.trim().toLowerCase());
-        ins++;
+        prog.log('ok', `[P${i + 1}] OK — ${r.codigo}`);
+        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
+        vistos.add(r.codigo.trim().toLowerCase());
       }
     }
-    return { ins, pul, err };
   }
 
-  async function importarApontamentosComProgresso(rows: ApontamentoImportado[], baseAtual: number) {
-    atualizarProgresso((p) => ({
-      ...p, fase: 'Apontamentos', log: [...p.log, { nivel: 'info', msg: '── Apontamentos ──' }],
-    }));
+  async function salvarApontamentos(rows: ApontamentoImportado[]) {
+    prog.log('section', `── Apontamentos (${rows.length}) ──`);
 
-    // busca mapa atualizado pós-inserção
+    // busca mapa atualizado pós-inserção de func/produtos
     const [{ data: funcs }, { data: prods }] = await Promise.all([
       supabase.from('funcionarios').select('id, nome'),
       supabase.from('produtos').select('id, codigo, nome'),
     ]);
-    const funcMap = new Map((funcs ?? []).map((f: { id: string; nome: string }) => [f.nome.toLowerCase(), f.id]));
-    const prodByCodigo = new Map((prods ?? []).map((p: { id: string; codigo: string }) => [p.codigo.toLowerCase(), p.id]));
 
-    let ins = 0, pul = 0, err = 0;
+    const funcMap = new Map<string, string>(
+      (funcs ?? []).map((f: { id: string; nome: string }) => [f.nome.toLowerCase(), f.id])
+    );
+    // índice por código E por nome (apontamentos podem vir com nome, não código)
+    const prodMap = new Map<string, string>();
+    for (const p of prods ?? []) {
+      prodMap.set(p.codigo.toLowerCase(), p.id);
+      prodMap.set(p.nome.toLowerCase(), p.id);
+    }
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      atualizarProgresso((p) => ({ ...p, atual: baseAtual + i + 1 }));
+      prog.set({ atual: prog.ref.current.atual + 1, fase: `Apontamentos ${i + 1}/${rows.length}` });
 
       const moldadorId = funcMap.get(r.moldador_nome.toLowerCase());
-      const produtoId = prodByCodigo.get(r.produto_codigo.toLowerCase());
+      const produtoId = prodMap.get(r.produto_codigo.toLowerCase());
 
       if (!moldadorId) {
-        addLog('error', `[A${i + 1}] Moldador não encontrado: "${r.moldador_nome}"`);
-        err++; continue;
+        prog.log('error', `[A${i + 1}] Moldador não encontrado: "${r.moldador_nome}"`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
+        continue;
       }
       if (!produtoId) {
-        addLog('error', `[A${i + 1}] Produto não encontrado: "${r.produto_codigo}"`);
-        err++; continue;
+        prog.log('error', `[A${i + 1}] Produto não encontrado: "${r.produto_codigo}"`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
+        continue;
       }
 
-      addLog('info', `[A${i + 1}/${rows.length}] ${r.data} | ${r.moldador_nome} | ${r.produto_codigo} | ${r.qtde_caixas} cx…`);
+      prog.log('info', `[A${i + 1}] ${r.data} | ${r.moldador_nome} | ${r.produto_codigo} | ${r.qtde_caixas}cx…`);
       const { error } = await supabase.from('producao').insert({
-        data: r.data, moldador_id: moldadorId, produto_id: produtoId,
-        qtde_caixas: r.qtde_caixas, aluminio_bruto: r.aluminio_bruto,
-        peso_retorno: r.peso_retorno, perdas_peca: r.perdas_peca,
-        consumo_oleo: r.consumo_oleo, tempo_horas: r.tempo_horas,
+        data: r.data,
+        moldador_id: moldadorId,
+        produto_id: produtoId,
+        qtde_caixas: r.qtde_caixas,
+        aluminio_bruto: r.aluminio_bruto,
+        peso_retorno: r.peso_retorno,
+        perdas_peca: r.perdas_peca,
+        consumo_oleo: r.consumo_oleo,
+        tempo_horas: r.tempo_horas,
       });
 
       if (error) {
-        addLog('error', `[A${i + 1}] ERRO: ${error.message}`);
-        err++;
+        prog.log('error', `[A${i + 1}] ERRO: ${error.message}`);
+        prog.set({ erros: prog.ref.current.erros + 1 });
       } else {
-        addLog('ok', `[A${i + 1}] OK`);
-        ins++;
+        prog.log('ok', `[A${i + 1}] OK`);
+        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
       }
-      pul; // satisfaz eslint
     }
-    return { ins, pul, err };
   }
 
-  // helper para leitura assíncrona do state (não funciona direto em setState chain)
-  const getCurrentAtual = () =>
-    new Promise<number>((res) => setProgresso((p) => { res(p?.atual ?? 0); return p!; }));
+  // ── orquestração principal ───────────────────────────
+  const iniciarImportacao = async (
+    fRows: FuncionarioImportado[],
+    cRows: ClienteImportado[],
+    pRows: ProdutoImportado[],
+    aRows: ApontamentoImportado[],
+  ) => {
+    const total = fRows.length + cRows.length + pRows.length + aRows.length;
 
-  // ── orquestração "salvar tudo" ────────────────────────
-  const handleSalvarTodos = async () => {
-    if (!resultadoTodos) return;
-    const { funcionarios: fRows, clientes: cRows, produtos: pRows, apontamentos: aRows } = resultadoTodos;
-
-    const total = fRows.dados.length + cRows.dados.length + pRows.dados.length + aRows.dados.length;
-    setProgresso({ ...PROG_VAZIO, total, fase: 'Iniciando…' });
+    // inicializa o progresso
+    prog.ref.current = {
+      total, atual: 0, fase: 'Iniciando…',
+      log: [], concluido: false,
+      inseridos: 0, pulados: 0, erros: 0,
+    };
+    setShowProgresso(true);
+    setSalvando(true);
+    setResultado(null);
     setResultadoTodos(null);
 
-    let totalIns = 0, totalPul = 0, totalErr = 0;
-
     try {
-      if (fRows.dados.length > 0) {
-        const r = await importarFuncionariosComProgresso(fRows.dados);
-        totalIns += r.ins; totalPul += r.pul; totalErr += r.err;
-      }
+      if (fRows.length > 0) await salvarFuncionarios(fRows);
+      if (cRows.length > 0) await salvarClientes(cRows);
+      if (pRows.length > 0) await salvarProdutos(pRows);
+      if (aRows.length > 0) await salvarApontamentos(aRows);
 
-      if (cRows.dados.length > 0) {
-        const r = await importarClientesComProgresso(cRows.dados);
-        totalIns += r.ins; totalPul += r.pul; totalErr += r.err;
-      }
-
-      const baseAntesProd = fRows.dados.length + cRows.dados.length;
-      if (pRows.dados.length > 0) {
-        const r = await importarProdutosComProgresso(pRows.dados, baseAntesProd);
-        totalIns += r.ins; totalPul += r.pul; totalErr += r.err;
-      }
-
-      const baseAntesAp = baseAntesProd + pRows.dados.length;
-      if (aRows.dados.length > 0) {
-        const r = await importarApontamentosComProgresso(aRows.dados, baseAntesAp);
-        totalIns += r.ins; totalPul += r.pul; totalErr += r.err;
-      }
-
-      addLog('ok', `─────────────────────────────────`);
-      addLog('ok', `CONCLUÍDO: ${totalIns} inseridos, ${totalPul} pulados (duplicata), ${totalErr} erros`);
-      atualizarProgresso((p) => ({
-        ...p, atual: total, concluido: true,
-        resumo: { inseridos: totalIns, pulados: totalPul, erros: totalErr },
-      }));
+      const p = prog.ref.current;
+      prog.log('section', '─────────────────────────────────────────');
+      prog.log('ok', `CONCLUÍDO: ${p.inseridos} inseridos | ${p.pulados} pulados (duplicata) | ${p.erros} erros`);
+      prog.set({ concluido: true, fase: 'Concluído' });
 
       setArquivo(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
-      addLog('error', `Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
-      setErroMsg(`Erro: ${err instanceof Error ? err.message : String(err)}`);
+      prog.log('error', `Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
+      prog.set({ concluido: true, fase: 'Erro' });
+    } finally {
+      setSalvando(false);
     }
   };
 
-  // ── salvar importação simples (por tipo) ──────────────
-  const handleSalvarSimples = async () => {
+  const handleSalvarTodos = () => {
+    if (!resultadoTodos) return;
+    iniciarImportacao(
+      resultadoTodos.funcionarios.dados,
+      resultadoTodos.clientes.dados,
+      resultadoTodos.produtos.dados,
+      resultadoTodos.apontamentos.dados,
+    );
+  };
+
+  const handleSalvarSimples = () => {
     if (!resultado || resultado.dados.length === 0) return;
-    const rows = resultado.dados;
-    const total = rows.length;
-    setProgresso({ ...PROG_VAZIO, total, fase: tipo });
-    setResultado(null);
-
-    try {
-      if (tipo === 'funcionarios') {
-        const r = await importarFuncionariosComProgresso(rows as FuncionarioImportado[]);
-        addLog('ok', `Fim: ${r.ins} inseridos, ${r.pul} pulados, ${r.err} erros`);
-        atualizarProgresso((p) => ({ ...p, concluido: true, resumo: { inseridos: r.ins, pulados: r.pul, erros: r.err } }));
-
-      } else if (tipo === 'clientes') {
-        const r = await importarClientesComProgresso(rows as ClienteImportado[]);
-        addLog('ok', `Fim: ${r.ins} inseridos, ${r.pul} pulados, ${r.err} erros`);
-        atualizarProgresso((p) => ({ ...p, concluido: true, resumo: { inseridos: r.ins, pulados: r.pul, erros: r.err } }));
-
-      } else if (tipo === 'produtos') {
-        const r = await importarProdutosComProgresso(rows as (ProdutoImportado & { cliente_nome?: string })[], 0);
-        addLog('ok', `Fim: ${r.ins} inseridos, ${r.pul} pulados, ${r.err} erros`);
-        atualizarProgresso((p) => ({ ...p, concluido: true, resumo: { inseridos: r.ins, pulados: r.pul, erros: r.err } }));
-
-      } else if (tipo === 'apontamentos') {
-        const r = await importarApontamentosComProgresso(rows as ApontamentoImportado[], 0);
-        addLog('ok', `Fim: ${r.ins} inseridos, ${r.pul} pulados, ${r.err} erros`);
-        atualizarProgresso((p) => ({ ...p, concluido: true, resumo: { inseridos: r.ins, pulados: r.pul, erros: r.err } }));
-      }
-
-      setArquivo(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch (err) {
-      addLog('error', `Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
+    const empty: never[] = [];
+    if (tipo === 'funcionarios') {
+      iniciarImportacao(resultado.dados as FuncionarioImportado[], empty, empty, empty);
+    } else if (tipo === 'clientes') {
+      iniciarImportacao(empty, resultado.dados as ClienteImportado[], empty, empty);
+    } else if (tipo === 'produtos') {
+      iniciarImportacao(empty, empty, resultado.dados as ProdutoImportado[], empty);
+    } else if (tipo === 'apontamentos') {
+      iniciarImportacao(empty, empty, empty, resultado.dados as ApontamentoImportado[]);
     }
   };
 
-  // ── resumo exibido antes de salvar ───────────────────
+  // ── cálculo da barra ─────────────────────────────────
+  const p = prog.ref.current;
+  const pct = p.total > 0 ? Math.min(100, Math.round((p.atual / p.total) * 100)) : 0;
+
+  // ── resumo da leitura ────────────────────────────────
   const resumoTodos = resultadoTodos
     ? {
         funcionarios: { sucesso: resultadoTodos.funcionarios.sucesso, erros: resultadoTodos.funcionarios.erros.length },
@@ -438,14 +424,6 @@ export default function ImportacaoPage() {
       resumoTodos.produtos.sucesso + resumoTodos.apontamentos.sucesso
     : 0;
 
-  // ── barra de progresso ────────────────────────────────
-  const pct = progresso && progresso.total > 0
-    ? Math.round((progresso.atual / progresso.total) * 100)
-    : 0;
-
-  // supress unused for funcsCache / prodsCache (used in apontamentos)
-  void funcsCache; void prodsCache;
-
   return (
     <Layout title="Importação de Dados">
       <div className="space-y-6 max-w-4xl">
@@ -455,62 +433,59 @@ export default function ImportacaoPage() {
         )}
 
         {/* ── painel de progresso ── */}
-        {progresso && (
-          <Card title={`Importando: ${progresso.fase}`}>
+        {showProgresso && (
+          <Card title={`Importando — ${p.fase}`}>
             <div className="space-y-3">
               {/* barra */}
               <div className="flex items-center gap-3">
-                <div className="flex-1 bg-slate-200 rounded-full h-4 overflow-hidden">
+                <div className="flex-1 bg-slate-200 rounded-full h-5 overflow-hidden">
                   <div
-                    className={`h-4 rounded-full transition-all duration-300 ${
-                      progresso.concluido
-                        ? progresso.resumo.erros > 0 ? 'bg-orange-500' : 'bg-green-500'
+                    className={`h-5 rounded-full transition-all duration-200 ${
+                      p.concluido
+                        ? p.erros > 0 ? 'bg-orange-500' : 'bg-green-500'
                         : 'bg-orange-400'
                     }`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <span className="text-sm font-bold tabular-nums w-12 text-right">{pct}%</span>
+                <span className="text-sm font-bold tabular-nums w-14 text-right">{pct}%</span>
               </div>
 
               {/* contador */}
-              <p className="text-xs text-slate-500 tabular-nums">
-                {progresso.atual} / {progresso.total} registros
-                {!progresso.concluido && (
-                  <span className="ml-2 inline-block w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-                )}
-              </p>
+              <div className="flex items-center gap-2 text-xs text-slate-500 tabular-nums">
+                <span>{p.atual} / {p.total} registros</span>
+                {!p.concluido && <span className="inline-block w-2 h-2 rounded-full bg-orange-400 animate-pulse" />}
+                {!p.concluido && salvando && <span className="text-orange-500 font-semibold">Processando…</span>}
+              </div>
 
-              {/* log */}
+              {/* log terminal */}
               <div
                 ref={logRef}
-                className="font-mono text-xs bg-slate-900 text-slate-100 rounded-lg p-3 h-64 overflow-y-auto space-y-0.5"
+                className="font-mono text-xs bg-slate-900 text-slate-100 rounded-lg p-3 h-72 overflow-y-auto"
               >
-                {progresso.log.map((entry, i) => (
-                  <div key={i} className={COR[entry.nivel]}>
-                    <span className="select-none mr-1">{ICONE[entry.nivel]}</span>
+                {p.log.map((entry, i) => (
+                  <div key={i} className={`leading-5 ${COR[entry.nivel]}`}>
+                    <span className="select-none mr-1 opacity-60">{ICONE[entry.nivel]}</span>
                     {entry.msg}
                   </div>
                 ))}
-                {!progresso.concluido && (
-                  <div className="text-slate-500 animate-pulse">▋</div>
-                )}
+                {!p.concluido && <div className="text-slate-500 animate-pulse mt-1">▋</div>}
               </div>
 
               {/* resumo final */}
-              {progresso.concluido && (
-                <div className="grid grid-cols-3 gap-2 pt-2">
-                  <div className="p-2 bg-green-50 rounded text-center">
-                    <p className="text-xs text-slate-500">Inseridos</p>
-                    <p className="text-xl font-bold text-green-700">{progresso.resumo.inseridos}</p>
+              {p.concluido && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 bg-green-50 rounded-lg text-center">
+                    <p className="text-xs text-slate-500 mb-1">Inseridos</p>
+                    <p className="text-2xl font-bold text-green-700">{p.inseridos}</p>
                   </div>
-                  <div className="p-2 bg-yellow-50 rounded text-center">
-                    <p className="text-xs text-slate-500">Pulados (duplicata)</p>
-                    <p className="text-xl font-bold text-yellow-600">{progresso.resumo.pulados}</p>
+                  <div className="p-3 bg-yellow-50 rounded-lg text-center">
+                    <p className="text-xs text-slate-500 mb-1">Pulados (duplicata)</p>
+                    <p className="text-2xl font-bold text-yellow-600">{p.pulados}</p>
                   </div>
-                  <div className="p-2 bg-red-50 rounded text-center">
-                    <p className="text-xs text-slate-500">Erros</p>
-                    <p className="text-xl font-bold text-red-600">{progresso.resumo.erros}</p>
+                  <div className="p-3 bg-red-50 rounded-lg text-center">
+                    <p className="text-xs text-slate-500 mb-1">Erros</p>
+                    <p className="text-2xl font-bold text-red-600">{p.erros}</p>
                   </div>
                 </div>
               )}
@@ -518,9 +493,9 @@ export default function ImportacaoPage() {
           </Card>
         )}
 
+        {/* ── config: tipo + arquivo ── */}
         <Card title="Importar Dados do Excel">
           <div className="space-y-4">
-            {/* tipo */}
             <div className="grid grid-cols-1 gap-2">
               {TIPOS.map((t) => (
                 <label
@@ -539,7 +514,6 @@ export default function ImportacaoPage() {
               ))}
             </div>
 
-            {/* upload */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">
                 Arquivo Excel (.xlsx, .xls)
@@ -563,7 +537,7 @@ export default function ImportacaoPage() {
             {processando && (
               <div className="flex items-center gap-2 text-orange-600 text-sm">
                 <div className="spinner w-4 h-4" />
-                Processando arquivo…
+                Lendo arquivo…
               </div>
             )}
           </div>
@@ -585,14 +559,14 @@ export default function ImportacaoPage() {
                   <div key={item.label} className="p-3 bg-slate-50 rounded-lg text-center">
                     <p className="text-xs font-semibold text-slate-600">{item.label}</p>
                     <p className="text-2xl font-bold text-green-700">{item.sucesso}</p>
-                    {item.erros > 0 && <p className="text-xs text-red-500">{item.erros} com erro</p>}
+                    {item.erros > 0 && <p className="text-xs text-red-500">{item.erros} com erro de leitura</p>}
                   </div>
                 ))}
               </div>
 
               {Object.entries(resultadoTodos).some(([, v]) => (v as ImportacaoResult<unknown>).erros.length > 0) && (
                 <div>
-                  <p className="text-sm font-semibold text-red-700 mb-2">Erros na leitura:</p>
+                  <p className="text-sm font-semibold text-red-700 mb-2">Erros na leitura do Excel:</p>
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {Object.entries(resultadoTodos).flatMap(([modulo, v]) =>
                       (v as ImportacaoResult<unknown>).erros.map((e, i) => (
@@ -606,8 +580,12 @@ export default function ImportacaoPage() {
               )}
 
               {totalParaSalvar > 0 && (
-                <button className="btn-primary w-full" onClick={handleSalvarTodos}>
-                  Salvar tudo — {totalParaSalvar} registros (com verificação de duplicatas)
+                <button
+                  className="btn-primary w-full py-3 text-base"
+                  onClick={handleSalvarTodos}
+                  disabled={salvando}
+                >
+                  {salvando ? 'Importando…' : `▶ Iniciar Importação — ${totalParaSalvar} registros`}
                 </button>
               )}
             </div>
@@ -628,7 +606,6 @@ export default function ImportacaoPage() {
                   <p className="text-2xl font-bold text-red-700">{resultado.erros.length}</p>
                 </div>
               </div>
-
               {resultado.erros.length > 0 && (
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   {resultado.erros.map((e, i) => (
@@ -638,7 +615,6 @@ export default function ImportacaoPage() {
                   ))}
                 </div>
               )}
-
               {resultado.sucesso > 0 && (
                 <>
                   <div className="overflow-x-auto">
@@ -653,15 +629,19 @@ export default function ImportacaoPage() {
                         {(resultado.dados as Record<string, unknown>[]).slice(0, 5).map((row, i) => (
                           <tr key={i} className="border-b">
                             {Object.values(row).map((v, j) => (
-                              <td key={j} className="p-2">{String(v ?? '')}</td>
+                              <td key={j} className="p-2 max-w-32 truncate">{String(v ?? '')}</td>
                             ))}
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <button className="btn-primary w-full" onClick={handleSalvarSimples}>
-                    Salvar {resultado.sucesso} registros (com verificação de duplicatas)
+                  <button
+                    className="btn-primary w-full py-3 text-base"
+                    onClick={handleSalvarSimples}
+                    disabled={salvando}
+                  >
+                    {salvando ? 'Importando…' : `▶ Iniciar Importação — ${resultado.sucesso} registros`}
                   </button>
                 </>
               )}
@@ -669,7 +649,7 @@ export default function ImportacaoPage() {
           </Card>
         )}
 
-        {/* guia de colunas */}
+        {/* guia */}
         <Card title="Formato das Colunas por Tipo">
           <div className="text-sm text-slate-600 space-y-3">
             {TIPOS.filter((t) => t.value !== 'tudo').map((t) => (
@@ -679,7 +659,8 @@ export default function ImportacaoPage() {
               </div>
             ))}
             <p className="text-xs text-slate-500 mt-2 p-2 bg-slate-50 rounded">
-              💡 A primeira linha deve conter os nomes das colunas. Datas aceitam DD/MM/YYYY, YYYY-MM-DD ou número serial do Excel. Duplicatas são detectadas automaticamente e puladas.
+              💡 Primeira linha = nomes das colunas. Datas: DD/MM/YYYY, YYYY-MM-DD ou serial Excel.
+              Duplicatas (funcionário por nome, cliente por razão social, produto por código) são puladas automaticamente.
             </p>
           </div>
         </Card>

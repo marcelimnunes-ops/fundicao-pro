@@ -80,6 +80,7 @@ export default function ImportacaoPage() {
   const [abasDetectadas, setAbasDetectadas] = useState<string[]>([]);
   const [processando, setProcessando] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [zerando, setZerando] = useState(false);
   const [resultado, setResultado] = useState<ImportacaoResult<unknown> | null>(null);
   const [resultadoTodos, setResultadoTodos] = useState<ImportacaoTodosResult | null>(null);
   const [showProgresso, setShowProgresso] = useState(false);
@@ -405,6 +406,39 @@ export default function ImportacaoPage() {
     );
   };
 
+  const handleZerarBanco = async () => {
+    if (!confirm('⚠️ ATENÇÃO: Isso irá apagar TODOS os dados (funcionários, clientes, produtos, produção, compras, estoque). Esta ação é irreversível!\n\nDeseja continuar?')) return;
+    if (!confirm('Confirma o ZERAMENTO TOTAL da base de dados?')) return;
+
+    setZerando(true);
+    setErroMsg('');
+    const tabelas = ['producao', 'compras', 'produtos', 'clientes', 'funcionarios', 'estoque_aluminio'];
+    const erros: string[] = [];
+
+    for (const tabela of tabelas) {
+      const { error } = await supabase.from(tabela).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      if (error) erros.push(`${tabela}: ${error.message}`);
+    }
+
+    // Recria saldos zerados no estoque
+    if (!erros.some(e => e.startsWith('estoque_aluminio'))) {
+      await supabase.from('estoque_aluminio').insert([
+        { tipo: 'Lingote', saldo: 0, custo_medio: 0 },
+        { tipo: 'Sucata',  saldo: 0, custo_medio: 0 },
+        { tipo: 'Óleo',    saldo: 0, custo_medio: 0 },
+        { tipo: 'Galho',   saldo: 0, custo_medio: 0 },
+      ]);
+    }
+
+    if (erros.length > 0) {
+      setErroMsg('Erros ao zerar: ' + erros.join('; '));
+    } else {
+      setErroMsg('');
+      alert('✅ Base de dados zerada com sucesso! Agora você pode fazer a importação.');
+    }
+    setZerando(false);
+  };
+
   const handleSalvarSimples = () => {
     if (!resultado || resultado.dados.length === 0) return;
     const empty: never[] = [];
@@ -441,6 +475,21 @@ export default function ImportacaoPage() {
   return (
     <Layout title="Importação de Dados">
       <div className="space-y-6 max-w-4xl">
+
+        {/* ── botão zerar banco ── */}
+        <div className="flex items-center justify-between p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Zerar Base de Dados</p>
+            <p className="text-xs text-red-600">Apaga todos os registros antes de uma nova importação limpa.</p>
+          </div>
+          <button
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-sm transition-colors disabled:opacity-50 whitespace-nowrap"
+            onClick={handleZerarBanco}
+            disabled={zerando || salvando}
+          >
+            {zerando ? '⏳ Zerando…' : '🗑️ Zerar Todos os Dados'}
+          </button>
+        </div>
 
         {erroMsg && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{erroMsg}</div>

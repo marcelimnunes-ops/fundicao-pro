@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import Layout from '@/components/Layout';
 import { Card, Badge } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { importacaoState } from '@/lib/importacaoState';
 import {
   importarApontamentos,
   importarFuncionarios,
@@ -29,7 +30,6 @@ const TIPOS: { value: TipoImportacao; label: string; descricao: string }[] = [
 
 // ── log ─────────────────────────────────────────────────
 type LogLevel = 'info' | 'ok' | 'skip' | 'warn' | 'error' | 'section';
-interface LogEntry { nivel: LogLevel; msg: string }
 const ICONE: Record<LogLevel, string> = { info: '→', ok: '✓', skip: '↩', warn: '⚠', error: '✗', section: '──' };
 const COR: Record<LogLevel, string> = {
   info: 'text-slate-400',
@@ -40,38 +40,14 @@ const COR: Record<LogLevel, string> = {
   section: 'text-cyan-400 font-bold',
 };
 
-// ── progresso ────────────────────────────────────────────
-interface Progresso {
-  total: number;
-  atual: number;
-  fase: string;
-  log: LogEntry[];
-  concluido: boolean;
-  inseridos: number;
-  pulados: number;
-  erros: number;
-}
 
-// ── hook de referência mutável para o log (evita re-renders desnecessários) ──
-function useProgressoRef() {
-  const ref = useRef<Progresso>({
-    total: 0, atual: 0, fase: '', log: [], concluido: false,
-    inseridos: 0, pulados: 0, erros: 0,
-  });
-  const [, forceRender] = useState(0);
-  const tick = () => forceRender((n) => n + 1);
-
-  const set = (upd: Partial<Progresso>) => {
-    ref.current = { ...ref.current, ...upd };
-    tick();
-  };
-
-  const log = (nivel: LogLevel, msg: string) => {
-    ref.current.log = [...ref.current.log, { nivel, msg }];
-    tick();
-  };
-
-  return { ref, set, log };
+// Hook que lê o estado singleton e re-renderiza quando muda
+function useImportacaoState() {
+  return useSyncExternalStore(
+    importacaoState.subscribe,
+    importacaoState.get,
+    importacaoState.get,
+  );
 }
 
 export default function ImportacaoPage() {
@@ -81,14 +57,15 @@ export default function ImportacaoPage() {
   const [processando, setProcessando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [zerando, setZerando] = useState(false);
-  const canceladoRef = useRef(false);
   const [resultado, setResultado] = useState<ImportacaoResult<unknown> | null>(null);
   const [resultadoTodos, setResultadoTodos] = useState<ImportacaoTodosResult | null>(null);
-  const [showProgresso, setShowProgresso] = useState(false);
   const [erroMsg, setErroMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
-  const prog = useProgressoRef();
+
+  // Estado de progresso — singleton sobrevive à navegação
+  const p = useImportacaoState();
+  const showProgresso = p.ativo;
 
   // auto-scroll do log
   useEffect(() => {
@@ -100,7 +77,7 @@ export default function ImportacaoPage() {
     setArquivo(file);
     setResultado(null);
     setResultadoTodos(null);
-    setShowProgresso(false);
+    // showProgresso vem do singleton
     setErroMsg('');
     try {
       const abas = await listarAbas(file);
@@ -115,7 +92,7 @@ export default function ImportacaoPage() {
     setProcessando(true);
     setResultado(null);
     setResultadoTodos(null);
-    setShowProgresso(false);
+    // showProgresso vem do singleton
     setErroMsg('');
     try {
       if (tipoAtual === 'tudo') {
@@ -140,7 +117,7 @@ export default function ImportacaoPage() {
     setTipo(novoTipo);
     setResultado(null);
     setResultadoTodos(null);
-    setShowProgresso(false);
+    // showProgresso vem do singleton
     setErroMsg('');
     if (arquivo) await processarArquivo(arquivo, novoTipo);
   };
@@ -148,216 +125,136 @@ export default function ImportacaoPage() {
   // ── núcleo de importação ─────────────────────────────
   // Todas as inserções passam por aqui com controle de progresso
 
+  // ── atalho para o singleton ─────────────────────────
+  const ist = importacaoState;
+
   async function salvarFuncionarios(rows: FuncionarioImportado[]) {
-    prog.log('section', `── Funcionários (${rows.length}) ──`);
+    ist.log('section', `── Funcionários (${rows.length}) ──`);
     const { data: existing, error: errEx } = await supabase.from('funcionarios').select('nome');
     if (errEx || !existing) {
-      prog.log('error', `Falha ao consultar funcionários: ${errEx?.message ?? 'sem dados'}`);
-      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
-      // Incrementa erros para todos os registros
-      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
+      ist.log('error', `Falha ao consultar funcionários: ${errEx?.message ?? 'sem dados'}`);
+      ist.set({ erros: ist.get().erros + rows.length, atual: ist.get().atual + rows.length });
       return;
     }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-
     for (let i = 0; i < rows.length; i++) {
-      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
-      prog.set({ atual: prog.ref.current.atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
-
+      ist.set({ atual: ist.get().atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
       if (vistos.has(r.nome.trim().toLowerCase())) {
-        prog.log('skip', `[F${i + 1}] Pulado (já existe): ${r.nome}`);
-        prog.set({ pulados: prog.ref.current.pulados + 1 });
+        ist.log('skip', `[F${i + 1}] Pulado (já existe): ${r.nome}`);
+        ist.set({ pulados: ist.get().pulados + 1 });
         continue;
       }
-
-      prog.log('info', `[F${i + 1}] Inserindo: ${r.nome} — ${r.funcao}…`);
+      ist.log('info', `[F${i + 1}] Inserindo: ${r.nome} — ${r.funcao}…`);
       const { error } = await supabase.from('funcionarios').insert({
-        nome: r.nome,
-        funcao: r.funcao,
-        salario: r.salario,
-        cartao_beneficio: r.cartao_beneficio ?? 0,
+        nome: r.nome, funcao: r.funcao,
+        salario: r.salario, cartao_beneficio: r.cartao_beneficio ?? 0,
       });
-
-      if (error) {
-        prog.log('error', `[F${i + 1}] ERRO: ${r.nome} → ${error.message}`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-      } else {
-        prog.log('ok', `[F${i + 1}] OK — ${r.nome}`);
-        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
-        vistos.add(r.nome.trim().toLowerCase());
-      }
+      if (error) { ist.log('error', `[F${i + 1}] ERRO: ${r.nome} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[F${i + 1}] OK — ${r.nome}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.nome.trim().toLowerCase()); }
     }
   }
 
   async function salvarClientes(rows: ClienteImportado[]) {
-    prog.log('section', `── Clientes (${rows.length}) ──`);
+    ist.log('section', `── Clientes (${rows.length}) ──`);
     const { data: existing, error: errEx } = await supabase.from('clientes').select('razao_social');
     if (errEx || !existing) {
-      prog.log('error', `Falha ao consultar clientes: ${errEx?.message ?? 'sem dados'}`);
-      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
-      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
+      ist.log('error', `Falha ao consultar clientes: ${errEx?.message ?? 'sem dados'}`);
+      ist.set({ erros: ist.get().erros + rows.length, atual: ist.get().atual + rows.length });
       return;
     }
     const vistos = new Set(existing.map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
-
     for (let i = 0; i < rows.length; i++) {
-      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
-      prog.set({ atual: prog.ref.current.atual + 1, fase: `Clientes ${i + 1}/${rows.length}` });
-
+      ist.set({ atual: ist.get().atual + 1, fase: `Clientes ${i + 1}/${rows.length}` });
       if (vistos.has(r.razao_social.trim().toLowerCase())) {
-        prog.log('skip', `[C${i + 1}] Pulado (já existe): ${r.razao_social}`);
-        prog.set({ pulados: prog.ref.current.pulados + 1 });
-        continue;
+        ist.log('skip', `[C${i + 1}] Pulado (já existe): ${r.razao_social}`);
+        ist.set({ pulados: ist.get().pulados + 1 }); continue;
       }
-
-      prog.log('info', `[C${i + 1}] Inserindo: ${r.razao_social}…`);
+      ist.log('info', `[C${i + 1}] Inserindo: ${r.razao_social}…`);
       const { error } = await supabase.from('clientes').insert({
-        razao_social: r.razao_social,
-        nome_fantasia: r.nome_fantasia ?? null,
-        cnpj: r.cnpj ?? null,
-        email: r.email ?? null,
-        telefone: r.telefone ?? null,
-        cidade: r.cidade ?? null,
-        uf: r.uf ?? null,
-        // ativo usa DEFAULT true do banco (não enviamos para não depender da coluna existir no cache)
+        razao_social: r.razao_social, nome_fantasia: r.nome_fantasia ?? null,
+        cnpj: r.cnpj ?? null, cidade: r.cidade ?? null, uf: r.uf ?? null,
       });
-
-      if (error) {
-        prog.log('error', `[C${i + 1}] ERRO: ${r.razao_social} → ${error.message}`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-      } else {
-        prog.log('ok', `[C${i + 1}] OK — ${r.razao_social}`);
-        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
-        vistos.add(r.razao_social.trim().toLowerCase());
-      }
+      if (error) { ist.log('error', `[C${i + 1}] ERRO: ${r.razao_social} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[C${i + 1}] OK — ${r.razao_social}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.razao_social.trim().toLowerCase()); }
     }
   }
 
   async function salvarProdutos(rows: ProdutoImportado[]) {
-    prog.log('section', `── Produtos (${rows.length}) ──`);
-
-    // busca clientes para resolver FK
+    ist.log('section', `── Produtos (${rows.length}) ──`);
     const { data: clientesDB } = await supabase.from('clientes').select('id, razao_social, nome_fantasia');
     const clienteMap = new Map<string, string>();
     for (const c of clientesDB ?? []) {
       clienteMap.set(c.razao_social.trim().toLowerCase(), c.id);
       if (c.nome_fantasia) clienteMap.set(c.nome_fantasia.trim().toLowerCase(), c.id);
     }
-
-    // deduplicação por nome (não por código — código é gerado pelo banco)
     const { data: existing, error: errExP } = await supabase.from('produtos').select('nome');
     if (errExP || !existing) {
-      prog.log('error', `Falha ao consultar produtos: ${errExP?.message ?? 'sem dados'}`);
-      prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
-      return;
+      ist.log('error', `Falha ao consultar produtos: ${errExP?.message ?? 'sem dados'}`);
+      ist.set({ erros: ist.get().erros + rows.length, atual: ist.get().atual + rows.length }); return;
     }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-
     for (let i = 0; i < rows.length; i++) {
-      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
-      prog.set({ atual: prog.ref.current.atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
-
+      ist.set({ atual: ist.get().atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
       if (vistos.has(r.nome.trim().toLowerCase())) {
-        prog.log('skip', `[P${i + 1}] Pulado (já existe): ${r.nome}`);
-        prog.set({ pulados: prog.ref.current.pulados + 1 });
-        continue;
+        ist.log('skip', `[P${i + 1}] Pulado (já existe): ${r.nome}`);
+        ist.set({ pulados: ist.get().pulados + 1 }); continue;
       }
-
-      let clienteId: string | null = null;
-      if (r.cliente_nome) {
-        clienteId = clienteMap.get(r.cliente_nome.trim().toLowerCase()) ?? null;
-        if (!clienteId) prog.log('warn', `[P${i + 1}] Cliente não encontrado: "${r.cliente_nome}"`);
-      }
-
-      prog.log('info', `[P${i + 1}] Inserindo: ${r.nome}…`);
+      const clienteId = r.cliente_nome ? (clienteMap.get(r.cliente_nome.trim().toLowerCase()) ?? null) : null;
+      if (r.cliente_nome && !clienteId) ist.log('warn', `[P${i + 1}] Cliente não encontrado: "${r.cliente_nome}"`);
+      ist.log('info', `[P${i + 1}] Inserindo: ${r.nome}…`);
       const { error } = await supabase.from('produtos').insert({
-        // código é gerado automaticamente pelo banco (sequência PRD-0001)
-        nome: r.nome,
-        qtd_peca_placa:       r.qtd_peca_placa ?? 1,
-        peso_peca:            r.peso_peca ?? 0,
-        peso_galho:           r.peso_total_galho ?? 0,
-        percentual_retorno:   r.percentual_retorno ?? null,
-        qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? 0,
-        peso_macho:           r.peso_macho ?? null,
-        tipo_material:        r.tipo_material ?? 'sucata',
-        preco_venda_kg:       r.preco_venda_kg ?? null,
-        custo_adicional:      r.custo_adicional ?? 0,
-        cliente_id:           clienteId,
+        nome: r.nome, qtd_peca_placa: r.qtd_peca_placa ?? 1,
+        peso_peca: r.peso_peca ?? 0, peso_galho: r.peso_total_galho ?? 0,
+        percentual_retorno: r.percentual_retorno ?? null,
+        qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? 0, peso_macho: r.peso_macho ?? null,
+        tipo_material: r.tipo_material ?? 'sucata', preco_venda_kg: r.preco_venda_kg ?? null,
+        custo_adicional: r.custo_adicional ?? 0, cliente_id: clienteId,
       });
-
-      if (error) {
-        prog.log('error', `[P${i + 1}] ERRO: ${r.nome} → ${error.message}`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-      } else {
-        prog.log('ok', `[P${i + 1}] OK — ${r.nome}`);
-        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
-        vistos.add(r.nome.trim().toLowerCase());
-      }
+      if (error) { ist.log('error', `[P${i + 1}] ERRO: ${r.nome} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[P${i + 1}] OK — ${r.nome}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.nome.trim().toLowerCase()); }
     }
   }
 
   async function salvarApontamentos(rows: ApontamentoImportado[]) {
-    prog.log('section', `── Apontamentos (${rows.length}) ──`);
-
-    // busca mapa atualizado pós-inserção de func/produtos
+    ist.log('section', `── Apontamentos (${rows.length}) ──`);
     const [{ data: funcs }, { data: prods }] = await Promise.all([
       supabase.from('funcionarios').select('id, nome'),
       supabase.from('produtos').select('id, codigo, nome'),
     ]);
-
     const funcMap = new Map<string, string>(
       (funcs ?? []).map((f: { id: string; nome: string }) => [f.nome.toLowerCase(), f.id])
     );
-    // índice por código E por nome (apontamentos podem vir com nome, não código)
     const prodMap = new Map<string, string>();
-    for (const p of prods ?? []) {
-      prodMap.set(p.codigo.toLowerCase(), p.id);
-      prodMap.set(p.nome.toLowerCase(), p.id);
+    for (const prod of prods ?? []) {
+      if (prod.codigo) prodMap.set(prod.codigo.toLowerCase(), prod.id);
+      prodMap.set(prod.nome.toLowerCase(), prod.id);
     }
-
     for (let i = 0; i < rows.length; i++) {
-      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
-      prog.set({ atual: prog.ref.current.atual + 1, fase: `Apontamentos ${i + 1}/${rows.length}` });
-
+      ist.set({ atual: ist.get().atual + 1, fase: `Apontamentos ${i + 1}/${rows.length}` });
       const moldadorId = funcMap.get(r.moldador_nome.toLowerCase());
+      const ajudanteId = r.ajudante_nome ? (funcMap.get(r.ajudante_nome.toLowerCase()) ?? null) : null;
       const produtoId = prodMap.get(r.produto_codigo.toLowerCase());
-
-      if (!moldadorId) {
-        prog.log('error', `[A${i + 1}] Moldador não encontrado: "${r.moldador_nome}"`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-        continue;
-      }
-      if (!produtoId) {
-        prog.log('error', `[A${i + 1}] Produto não encontrado: "${r.produto_codigo}"`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-        continue;
-      }
-
-      prog.log('info', `[A${i + 1}] ${r.data} | ${r.moldador_nome} | ${r.produto_codigo} | ${r.qtde_caixas}cx…`);
+      if (!moldadorId) { ist.log('error', `[A${i + 1}] Moldador não encontrado: "${r.moldador_nome}"`); ist.set({ erros: ist.get().erros + 1 }); continue; }
+      if (!produtoId) { ist.log('error', `[A${i + 1}] Produto não encontrado: "${r.produto_codigo}"`); ist.set({ erros: ist.get().erros + 1 }); continue; }
+      if (r.ajudante_nome && !ajudanteId) ist.log('warn', `[A${i + 1}] Ajudante não encontrado: "${r.ajudante_nome}"`);
+      ist.log('info', `[A${i + 1}] ${r.data} | ${r.moldador_nome}${r.ajudante_nome ? ' + ' + r.ajudante_nome : ''} | ${r.produto_codigo} | ${r.qtde_caixas}cx…`);
       const { error } = await supabase.from('producao').insert({
-        data: r.data,
-        moldador_id: moldadorId,
-        ajudante_id: null,  // Excel não tem ajudante — pode ser preenchido depois
-        produto_id: produtoId,
-        qtde_caixas: r.qtde_caixas,
-        aluminio_bruto: r.aluminio_bruto,
-        peso_retorno: r.peso_retorno,
-        perdas_peca: r.perdas_peca,
-        consumo_oleo: r.consumo_oleo,
-        tempo_horas: r.tempo_horas,
+        data: r.data, numero_op: r.numero_op ?? null,
+        moldador_id: moldadorId, ajudante_id: ajudanteId, produto_id: produtoId,
+        qtde_caixas: r.qtde_caixas, aluminio_bruto: r.aluminio_bruto,
+        peso_retorno: r.peso_retorno, perdas_peca: r.perdas_peca,
+        consumo_oleo: r.consumo_oleo, tempo_horas: r.tempo_horas,
       });
-
-      if (error) {
-        prog.log('error', `[A${i + 1}] ERRO: ${error.message}`);
-        prog.set({ erros: prog.ref.current.erros + 1 });
-      } else {
-        prog.log('ok', `[A${i + 1}] OK`);
-        prog.set({ inseridos: prog.ref.current.inseridos + 1 });
-      }
+      if (error) { ist.log('error', `[A${i + 1}] ERRO: ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[A${i + 1}] OK`); ist.set({ inseridos: ist.get().inseridos + 1 }); }
     }
   }
 
@@ -369,35 +266,24 @@ export default function ImportacaoPage() {
     aRows: ApontamentoImportado[],
   ) => {
     const total = fRows.length + cRows.length + pRows.length + aRows.length;
-
-    canceladoRef.current = false;
-    // inicializa o progresso
-    prog.ref.current = {
-      total, atual: 0, fase: 'Iniciando…',
-      log: [], concluido: false,
-      inseridos: 0, pulados: 0, erros: 0,
-    };
-    setShowProgresso(true);
+    ist.iniciar(total);
     setSalvando(true);
     setResultado(null);
     setResultadoTodos(null);
-
     try {
       if (fRows.length > 0) await salvarFuncionarios(fRows);
       if (cRows.length > 0) await salvarClientes(cRows);
       if (pRows.length > 0) await salvarProdutos(pRows);
       if (aRows.length > 0) await salvarApontamentos(aRows);
-
-      const p = prog.ref.current;
-      prog.log('section', '─────────────────────────────────────────');
-      prog.log('ok', `CONCLUÍDO: ${p.inseridos} inseridos | ${p.pulados} pulados (duplicata) | ${p.erros} erros`);
-      prog.set({ concluido: true, fase: 'Concluído' });
-
+      const st = ist.get();
+      ist.log('section', '─────────────────────────────────────────');
+      ist.log('ok', `CONCLUÍDO: ${st.inseridos} inseridos | ${st.pulados} pulados | ${st.erros} erros`);
+      ist.set({ concluido: true, fase: 'Concluído' });
       setArquivo(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
-      prog.log('error', `Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
-      prog.set({ concluido: true, fase: 'Erro' });
+      ist.log('error', `Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
+      ist.set({ concluido: true, fase: 'Erro' });
     } finally {
       setSalvando(false);
     }
@@ -461,7 +347,6 @@ export default function ImportacaoPage() {
   };
 
   // ── cálculo da barra ─────────────────────────────────
-  const p = prog.ref.current;
   const pct = p.total > 0 ? Math.min(100, Math.round((p.atual / p.total) * 100)) : 0;
 
   // ── resumo da leitura ────────────────────────────────
@@ -528,7 +413,7 @@ export default function ImportacaoPage() {
                 {!p.concluido && salvando && <span className="text-orange-500 font-semibold">Processando…</span>}
                 {!p.concluido && salvando && (
                   <button
-                    onClick={() => { canceladoRef.current = true; }}
+                    onClick={() => importacaoState.cancelar()}
                     className="ml-auto px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded text-xs transition-colors"
                   >
                     ⛔ Parar Importação

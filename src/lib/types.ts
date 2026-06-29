@@ -75,16 +75,25 @@ export interface Produto {
 export interface Producao {
   id: string;
   data: string;
+  numero_op?: string | null;
   moldador_id: string;
   ajudante_id?: string | null;
   produto_id: string;
   qtde_caixas: number;
   qtde_pecas?: number | null;
   aluminio_bruto: number;
+  aluminio_util?: number | null;
   peso_retorno: number;
   perdas_peca: number;
   consumo_oleo: number;
   tempo_horas: number;
+  custo_mo_total?: number | null;
+  custo_aluminio?: number | null;
+  custo_oleo?: number | null;
+  custo_machos?: number | null;
+  custo_total?: number | null;
+  custo_kg_util?: number | null;
+  custo_peca?: number | null;
   produto?: Produto;
   moldador?: Funcionario;
 }

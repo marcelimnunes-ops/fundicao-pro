@@ -11,7 +11,9 @@ export interface ImportacaoResult<T> {
 
 export interface ApontamentoImportado {
   data: string;
+  numero_op?: string;
   moldador_nome: string;
+  ajudante_nome?: string;
   produto_codigo: string;
   qtde_caixas: number;
   aluminio_bruto: number;
@@ -414,17 +416,22 @@ export async function importarPlanilhaCompleta(
       if (!moldador_nome || !produto_nome) throw new Error('Moldador/Produto ausente');
       const qtde_caixas = Math.round(num(row['Qtde Cx Produzida'] ?? row['Qtde']));
       const aluminio_bruto = num(row['Aluminio Bruto'] ?? row['Alumínio Bruto']);
-      if (qtde_caixas <= 0 || aluminio_bruto <= 0) throw new Error('Caixas/Alumínio inválidos');
+      if (qtde_caixas <= 0) throw new Error('Qtde Caixas deve ser maior que 0');
+      // Tempo vem como fração de dia no Excel (ex: 0.1229 = 2h57min → multiplica por 24)
+      const tempoRaw = num(row['Tempo']);
+      const tempo_horas = tempoRaw > 0 && tempoRaw < 1 ? tempoRaw * 24 : tempoRaw;
       apontamentos.dados.push({
         data: toDateStr(row['Data']),
+        numero_op: str(row['O.P.'] ?? row['OP'] ?? row['Op']) || undefined,
         moldador_nome,
+        ajudante_nome: str(row['Ajudante']) || undefined,
         produto_codigo: produto_nome,
         qtde_caixas,
-        aluminio_bruto,
-        peso_retorno: num(row['Retorno Aluminio']),
-        perdas_peca: Math.round(num(row['Perda Pçs'] ?? row['Perda Pcs'])),
-        consumo_oleo: num(row['Qtde Oleo']),
-        tempo_horas: num(row['Tempo']),
+        aluminio_bruto: aluminio_bruto || 0,
+        peso_retorno: num(row['Retorno Aluminio'] ?? row['Retorno']),
+        perdas_peca: Math.round(num(row['Perda Pçs'] ?? row['Perda Pcs'] ?? row['Perdas'])),
+        consumo_oleo: num(row['Qtde Oleo'] ?? row['Oleo'] ?? row['Consumo Oleo']),
+        tempo_horas,
       });
       apontamentos.sucesso++;
     } catch (err) {

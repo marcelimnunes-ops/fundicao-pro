@@ -3,6 +3,7 @@ import Layout from '@/components/Layout';
 import { Badge, Modal } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import type { Funcionario } from '@/lib/types';
+import { useConfig } from '@/hooks/useConfig';
 
 interface Funcao { id: string; nome: string }
 
@@ -37,6 +38,7 @@ function fmtBrl(n?: number | null) {
 }
 
 export default function FuncionariosPage() {
+  const { config } = useConfig();
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [funcoes, setFuncoes] = useState<Funcao[]>([]);
   const [fstats, setFstats] = useState<Map<string, FuncStats>>(new Map());
@@ -170,7 +172,9 @@ export default function FuncionariosPage() {
   const custoCalc = (() => {
     const s = parseFloat(formData.salario.replace(',', '.')) || 0;
     const c = parseFloat(formData.cartao_beneficio.replace(',', '.')) || 0;
-    return s + c > 0 ? ((s + c) / 176).toFixed(2) : null;
+    if (s + c <= 0) return null;
+    const valor = (s * config.ENCARGOS_TRABALHISTAS + c) / config.HORAS_UTEIS_MES;
+    return valor.toFixed(2);
   })();
 
   const handleBusca = (val: string) => {
@@ -260,7 +264,7 @@ export default function FuncionariosPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {lista.map((f) => {
               const s = fstats.get(f.id);
-              const custo = f.custo_hora ?? ((f.salario + (f.cartao_beneficio ?? 0)) / 176);
+              const custo = (f.salario * config.ENCARGOS_TRABALHISTAS + (f.cartao_beneficio ?? 0)) / config.HORAS_UTEIS_MES;
               return (
                 <div key={f.id} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
                   <div className="px-4 pt-4 pb-2 border-b border-slate-100">
@@ -348,7 +352,7 @@ export default function FuncionariosPage() {
                 <tbody className="divide-y divide-slate-100">
                   {lista.map((f) => {
                     const s = fstats.get(f.id);
-                    const custo = f.custo_hora ?? ((f.salario + (f.cartao_beneficio ?? 0)) / 176);
+                    const custo = (f.salario * config.ENCARGOS_TRABALHISTAS + (f.cartao_beneficio ?? 0)) / config.HORAS_UTEIS_MES;
                     return (
                       <tr key={f.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3">
@@ -442,7 +446,7 @@ export default function FuncionariosPage() {
           {custoCalc && (
             <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
               <span>Custo/hora calculado: <strong>R$ {custoCalc}/h</strong></span>
-              <span className="text-blue-500 text-xs">(salário + cartão) ÷ 176 h</span>
+              <span className="text-blue-500 text-xs">(salário × {config.ENCARGOS_TRABALHISTAS} + cartão) ÷ {config.HORAS_UTEIS_MES} h</span>
             </div>
           )}
         </div>

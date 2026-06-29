@@ -287,7 +287,18 @@ export default function ImportacaoPage() {
       const materialDB = r.material;
       const { error } = await supabase.from('compras').insert({ data: r.data, material: materialDB, quantidade: r.quantidade, preco_unitario: r.preco_unitario });
       if (error) { ist.log('error', `[C${i+1}] ERRO ${r.material}: ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
-      else { ist.log('ok', `[C${i+1}] ${r.material} ${r.data} ${r.quantidade}kg`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(chave); }
+      else {
+        ist.log('ok', `[C${i+1}] ${r.material} ${r.data} ${r.quantidade}kg`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(chave);
+        // Atualiza estoque (weighted average)
+        if (r.material !== 'Óleo') {
+          const { data: est } = await supabase.from('estoque_aluminio').select('saldo, custo_medio').eq('tipo', materialDB).single();
+          if (est) {
+            const novoSaldo = (est.saldo ?? 0) + r.quantidade;
+            const novoCusto = novoSaldo > 0 ? ((est.saldo ?? 0) * (est.custo_medio ?? 0) + r.quantidade * r.preco_unitario) / novoSaldo : r.preco_unitario;
+            await supabase.from('estoque_aluminio').update({ saldo: novoSaldo, custo_medio: novoCusto }).eq('tipo', materialDB);
+          }
+        }
+      }
     }
   }
 

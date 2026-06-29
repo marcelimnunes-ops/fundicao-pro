@@ -3,6 +3,8 @@ import Layout from '@/components/Layout';
 import { Card, Modal } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import type { Produto, Cliente } from '@/lib/types';
+import { useConfig } from '@/hooks/useConfig';
+import { fmtR, fmtN } from '@/lib/fmt';
 
 const TIPO_MATERIAL = ['lingote', 'sucata', 'mistura'] as const;
 
@@ -37,6 +39,7 @@ function fmtKg(n?: number | null) {
 }
 
 export default function ProdutosPage() {
+  const { config } = useConfig();
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,7 +202,7 @@ export default function ProdutosPage() {
 
         {/* Tabela compacta */}
         <Card>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '65vh' }}>
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -332,7 +335,7 @@ export default function ProdutosPage() {
               <input type="number" step="0.001" min="0" max="1" className="form-input text-sm" value={formData.percentual_retorno} onChange={setF('percentual_retorno')} placeholder="0.511" />
             </div>
 
-            {/* Linha 3: Machos/Cx, Peso Macho, Tipo Material, R$/kg */}
+            {/* Linha 3: Machos/Cx, Peso Macho, Tipo Material, Custo adicional */}
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Machos/Caixa</label>
               <input type="number" min="0" className="form-input text-sm" value={formData.qtd_machos_por_caixa} onChange={setF('qtd_machos_por_caixa')} />
@@ -350,50 +353,63 @@ export default function ProdutosPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Preço Venda (R$/kg)</label>
-              <input type="number" step="0.01" min="0" className="form-input text-sm" value={formData.preco_venda_kg} onChange={setF('preco_venda_kg')} placeholder="15.60" />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Custo Adicional (R$/peca)</label>
+              <input type="number" step="0.01" min="0" className="form-input text-sm" value={formData.custo_adicional} onChange={setF('custo_adicional')} placeholder="Usinagem, pintura..." />
             </div>
 
-            {/* Linha 4: Custo adicional, Estoque mínimo, Obs */}
+            {/* Linha 4: Estoque mínimo, Obs */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Custo Adicional (R$/cx)</label>
-              <input type="number" step="0.01" min="0" className="form-input text-sm" value={formData.custo_adicional} onChange={setF('custo_adicional')} placeholder="Usin./pintura" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Estoque Mín. (cxs)</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Estoque Min. (cxs)</label>
               <input type="number" min="0" className="form-input text-sm" value={formData.estoque_minimo} onChange={setF('estoque_minimo')} />
             </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Observações</label>
+            <div className="col-span-3">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Observacoes</label>
               <input className="form-input text-sm" value={formData.descricao} onChange={setF('descricao')} placeholder="Notas internas..." />
             </div>
           </div>
 
           {/* Preview cálculo */}
-          {pesoGalho > 0 && qtdPeca > 0 && (
-            <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-              <p className="text-xs font-bold text-orange-800 mb-2">Preview por caixa (1 placa)</p>
-              <div className="grid grid-cols-4 gap-3 text-xs">
-                <div className="text-center">
-                  <p className="text-slate-500">Alumínio bruto</p>
-                  <p className="font-bold text-orange-700 tabular-nums">{fmtKg(pesoGalho)}</p>
+          {pesoGalho > 0 && qtdPeca > 0 && (() => {
+            // Custo mínimo calculado
+            const custoKgAl = formData.tipo_material === 'lingote' ? config.CUSTO_KG_LINGOTE : config.CUSTO_KG_SUCATA;
+            const alBrutoCx = qtdPeca * pesoPeca + pesoGalho; // total alumínio por caixa
+            const alNetoCx = alBrutoCx - retornoKg; // descontando retorno
+            const custoMpPorCx = alNetoCx * custoKgAl;
+            const custoAdPorCx = (parseFloat(formData.custo_adicional) || 0) * qtdPeca; // adicional por PEÇA × qtd
+            const pesoMacho = parseFloat(formData.peso_macho) || 0;
+            const qtdMacho = parseInt(formData.qtd_machos_por_caixa) || 0;
+            const custoMachoCx = qtdMacho * pesoMacho * config.CUSTO_MACHO_KG;
+            const custoTotalCx = custoMpPorCx + custoAdPorCx + custoMachoCx;
+            const precoMinPorPeca = pesoPeca > 0 ? (custoTotalCx / qtdPeca) * config.MARKUP_CUSTO : 0;
+            const precoMinKg = pesoPeca > 0 ? precoMinPorPeca / pesoPeca : 0;
+            return (
+              <>
+                <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-xs font-bold text-orange-800 mb-2">Preview por caixa (1 placa)</p>
+                  <div className="grid grid-cols-4 gap-3 text-xs">
+                    <div className="text-center"><p className="text-slate-500">Al. bruto/cx</p><p className="font-bold text-orange-700 tabular-nums">{fmtKg(alBrutoCx)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Peso util ({qtdPeca} pcs)</p><p className="font-bold text-green-700 tabular-nums">{fmtKg(pesoUtilCx)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Canal (galho)</p><p className="font-bold text-blue-700 tabular-nums">{fmtKg(pesoCanal)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Retorno aproveit.</p><p className="font-bold text-purple-700 tabular-nums">{percRet > 0 ? fmtKg(retornoKg) : '--'}</p></div>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-slate-500">Peso útil ({qtdPeca} pçs)</p>
-                  <p className="font-bold text-green-700 tabular-nums">{fmtKg(pesoUtilCx)}</p>
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-xs font-bold text-green-800 mb-2">Preco minimo sugerido (calculado — nao editavel)</p>
+                  <div className="grid grid-cols-5 gap-3 text-xs">
+                    <div className="text-center"><p className="text-slate-500">Custo MP/cx</p><p className="font-bold tabular-nums">{fmtR(custoMpPorCx)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Custo Machos/cx</p><p className="font-bold tabular-nums">{fmtR(custoMachoCx)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Custo Adic./cx</p><p className="font-bold tabular-nums">{fmtR(custoAdPorCx)}</p></div>
+                    <div className="text-center"><p className="text-slate-500">Total/cx</p><p className="font-bold tabular-nums">{fmtR(custoTotalCx)}</p></div>
+                    <div className="text-center bg-green-100 rounded p-1">
+                      <p className="text-slate-600 font-semibold">Min. R$/kg</p>
+                      <p className="text-xl font-bold text-green-700 tabular-nums">{precoMinKg > 0 ? fmtN(precoMinKg) : '--'}</p>
+                      <p className="text-slate-400">(markup {((config.MARKUP_CUSTO - 1) * 100).toFixed(0)}%)</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-slate-500">Canal (retorno)</p>
-                  <p className="font-bold text-blue-700 tabular-nums">{fmtKg(pesoCanal)}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-slate-500">Retorno aproveit.</p>
-                  <p className="font-bold text-purple-700 tabular-nums">{percRet > 0 ? fmtKg(retornoKg) : '—'}</p>
-                  {percRet > 0 && <p className="text-slate-400">({(percRet * 100).toFixed(0)}% canal)</p>}
-                </div>
-              </div>
-            </div>
-          )}
+              </>
+            );
+          })()}
         </Modal>
       </div>
     </Layout>

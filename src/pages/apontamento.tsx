@@ -4,6 +4,7 @@ import { useProducao } from '@/hooks/useProducao';
 import { Card } from '@/components/ui';
 import Modal from '@/components/ui/Modal';
 import type { Produto, Producao } from '@/lib/types';
+import { fmtData } from '@/lib/fmt';
 
 function ProdutoAutocomplete({ produtos, value, onChange }: { produtos: Produto[]; value: string; onChange: (id: string) => void }) {
   const [texto, setTexto] = useState('');
@@ -373,7 +374,7 @@ export default function ApontamentoPage() {
                   const extra = p as unknown as Record<string, unknown>;
                   return (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-2 font-mono text-xs">{p.data}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{fmtData(p.data)}</td>
                       <td className="px-3 py-2 text-slate-400 text-xs">{String(extra.numero_op ?? '--')}</td>
                       <td className="px-3 py-2 font-semibold">{moldador?.nome ?? '--'}</td>
                       <td className="px-3 py-2 text-slate-500">{ajudante?.nome ?? '--'}</td>

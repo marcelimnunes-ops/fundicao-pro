@@ -2,11 +2,9 @@ import { useState, useMemo, useEffect } from 'react';
 import Layout from '@/components/Layout';
 import { useProducao } from '@/hooks/useProducao';
 import { supabase } from '@/lib/supabase';
+import { fmtData, fmtR, fmtN } from '@/lib/fmt';
 
 interface Compra { data: string; material: string; quantidade: number; preco_unitario: number; valor_total: number; }
-
-function fmtR(n: number) { return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }); }
-function fmtN(n: number, d = 2) { return n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 
 interface Filtros { dataIni: string; dataFim: string; funcionario: string; produto: string; }
 const FILTROS_VAZIO: Filtros = { dataIni: '', dataFim: '', funcionario: '', produto: '' };
@@ -35,8 +33,17 @@ function FiltroBar({ filtros, onChange, showFunc = true, showProd = true, funcio
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">{children}</th>;
+function Th({ children, sortKey, sortState, onSort }: { children: React.ReactNode; sortKey?: string; sortState?: { key: string; dir: 'asc' | 'desc' }; onSort?: (k: string) => void }) {
+  const active = sortState && sortKey && sortState.key === sortKey;
+  return (
+    <th onClick={() => sortKey && onSort && onSort(sortKey)}
+      className={'px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase bg-slate-50 border-b border-slate-200 ' + (sortKey ? 'cursor-pointer hover:bg-slate-100 select-none' : '')}>
+      <span className="flex items-center gap-1">
+        {children}
+        {sortKey && <span className="text-slate-300">{active ? (sortState.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
+      </span>
+    </th>
+  );
 }
 function Td({ children, right }: { children: React.ReactNode; right?: boolean }) {
   return <td className={'px-3 py-2 text-sm border-b border-slate-50 ' + (right ? 'text-right font-mono' : '')}>{children}</td>;
@@ -68,6 +75,11 @@ export default function RelatoriosPage() {
   const [rel, setRel] = useState('producao-geral');
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIO);
   const [compras, setCompras] = useState<Compra[]>([]);
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'cx', dir: 'desc' });
+  const [drillProduto, setDrillProduto] = useState<string | null>(null);
+
+  const handleSort = (key: string) =>
+    setSort((prev) => prev.key === key ? { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' });
 
   useEffect(() => {
     supabase.from('compras').select('*').order('data').then(({ data }) => setCompras((data ?? []) as Compra[]));
@@ -118,7 +130,7 @@ export default function RelatoriosPage() {
               const prod = produtos.find((pr) => pr.id === p.produto_id);
               const extra = p as unknown as Record<string, unknown>;
               return (<tr key={p.id} className="hover:bg-slate-50">
-                <Td>{p.data}</Td><Td>{String(extra.numero_op ?? '--')}</Td>
+                <Td>{fmtData(p.data)}</Td><Td>{String(extra.numero_op ?? '--')}</Td>
                 <Td>{mold?.nome ?? '--'}</Td><Td>{ajud?.nome ?? '--'}</Td><Td>{prod?.nome ?? '--'}</Td>
                 <Td right>{p.qtde_caixas}</Td><Td right>{p.qtde_pecas ?? '--'}</Td>
                 <Td right>{fmtN(p.aluminio_bruto ?? 0)}</Td><Td right>{fmtN(p.peso_retorno ?? 0)}</Td>
@@ -132,28 +144,82 @@ export default function RelatoriosPage() {
     }
 
     if (rel === 'por-produto') {
-      const agg: Record<string, { nome: string; cx: number; pecas: number; al: number; ret: number; perdas: number; h: number; ops: number }> = {};
+      type ProdRow = { id: string; nome: string; cx: number; pecas: number; al: number; ret: number; perdas: number; h: number; ops: number };
+      const agg: Record<string, ProdRow> = {};
       prodFiltrados.forEach((p) => {
-        if (!agg[p.produto_id]) { const pr = produtos.find((x) => x.id === p.produto_id); agg[p.produto_id] = { nome: pr?.nome ?? '--', cx: 0, pecas: 0, al: 0, ret: 0, perdas: 0, h: 0, ops: 0 }; }
+        if (!agg[p.produto_id]) { const pr = produtos.find((x) => x.id === p.produto_id); agg[p.produto_id] = { id: p.produto_id, nome: pr?.nome ?? '--', cx: 0, pecas: 0, al: 0, ret: 0, perdas: 0, h: 0, ops: 0 }; }
         const a = agg[p.produto_id];
         a.cx += p.qtde_caixas ?? 0; a.pecas += p.qtde_pecas ?? 0; a.al += p.aluminio_bruto ?? 0;
         a.ret += p.peso_retorno ?? 0; a.perdas += p.perdas_peca ?? 0; a.h += p.tempo_horas ?? 0; a.ops++;
       });
-      const rows = Object.values(agg).sort((a, b) => b.cx - a.cx);
+      const sortNum = (r: ProdRow) => {
+        if (sort.key === 'ops') return r.ops; if (sort.key === 'cx') return r.cx;
+        if (sort.key === 'pecas') return r.pecas; if (sort.key === 'al') return r.al;
+        if (sort.key === 'ret') return r.ret; if (sort.key === 'perdas') return r.perdas;
+        if (sort.key === 'h') return r.h; if (sort.key === 'cxh') return r.h > 0 ? r.cx / r.h : 0;
+        if (sort.key === 'alcx') return r.cx > 0 ? r.al / r.cx : 0;
+        return r.cx;
+      };
+      const rows = Object.values(agg).sort((a, b) => sort.dir === 'desc' ? sortNum(b) - sortNum(a) : sortNum(a) - sortNum(b));
       const totCx = rows.reduce((s, r) => s + r.cx, 0);
+      const cols: { label: string; key: string }[] = [
+        { label: 'Produto', key: '' }, { label: 'OPs', key: 'ops' }, { label: 'Caixas', key: 'cx' },
+        { label: 'Pecas', key: 'pecas' }, { label: 'Al. Bruto kg', key: 'al' }, { label: 'Retorno kg', key: 'ret' },
+        { label: 'Perdas pcs', key: 'perdas' }, { label: 'Horas', key: 'h' }, { label: 'Cx/Hora', key: 'cxh' }, { label: 'Al/Cx', key: 'alcx' },
+      ];
+
+      // Drill-down modal
+      if (drillProduto) {
+        const pr = produtos.find((x) => x.id === drillProduto);
+        const entries = prodFiltrados.filter((p) => p.produto_id === drillProduto)
+          .sort((a, b) => b.data.localeCompare(a.data));
+        const tot = { cx: 0, pecas: 0, al: 0, ret: 0, perdas: 0, h: 0 };
+        entries.forEach((e) => { tot.cx += e.qtde_caixas ?? 0; tot.pecas += e.qtde_pecas ?? 0; tot.al += e.aluminio_bruto ?? 0; tot.ret += e.peso_retorno ?? 0; tot.perdas += e.perdas_peca ?? 0; tot.h += e.tempo_horas ?? 0; });
+        return (
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <button onClick={() => setDrillProduto(null)} className="btn-secondary py-1 px-3 text-sm">← Voltar</button>
+              <h2 className="font-bold text-slate-700">{pr?.nome ?? drillProduto}</h2>
+              <span className="text-xs text-slate-400">{entries.length} apontamentos</span>
+            </div>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+              {([['Caixas', tot.cx, ''], ['Pecas', tot.pecas, ''], ['Al. Bruto', fmtN(tot.al) + ' kg', ''], ['Retorno', fmtN(tot.ret) + ' kg', 'text-green-600'], ['Perdas', tot.perdas, 'text-red-500'], ['Horas', fmtN(tot.h, 1), '']] as [string, React.ReactNode, string][]).map(([l, v, c]) => (
+                <div key={l} className="card p-3 text-center"><p className="text-xs text-slate-400">{l}</p><p className={'text-lg font-bold ' + c}>{v}</p></div>
+              ))}
+            </div>
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead><tr>{['Data', 'Moldador', 'Caixas', 'Pecas', 'Al. Bruto', 'Retorno', 'Perdas', 'Horas'].map((h) => <Th key={h}>{h}</Th>)}</tr></thead>
+              <tbody>
+                {entries.map((e) => {
+                  const mold = funcionarios.find((f) => f.id === e.moldador_id);
+                  return (<tr key={e.id} className="hover:bg-slate-50">
+                    <Td>{fmtData(e.data)}</Td><Td>{mold?.nome ?? '--'}</Td>
+                    <Td right>{e.qtde_caixas}</Td><Td right>{e.qtde_pecas ?? '--'}</Td>
+                    <Td right>{fmtN(e.aluminio_bruto ?? 0)}</Td><Td right>{fmtN(e.peso_retorno ?? 0)}</Td>
+                    <Td right>{e.perdas_peca ?? 0}</Td><Td right>{fmtN(e.tempo_horas ?? 0, 1)}</Td>
+                  </tr>);
+                })}
+                <TotRow label="TOTAL" vals={[null, tot.cx, tot.pecas, fmtN(tot.al), fmtN(tot.ret), tot.perdas, fmtN(tot.h, 1)]} />
+              </tbody>
+            </table></div>
+          </div>
+        );
+      }
+
       return (<>
         <FiltroBar filtros={filtros} onChange={setFiltros} showFunc={false} funcionarios={funcionarios} produtos={produtos} />
+        <p className="text-xs text-slate-400 mb-2">Clique no produto para ver os lancamentos detalhados. Clique no cabecalho para ordenar.</p>
         <div className="overflow-x-auto"><table className="w-full text-sm">
-          <thead><tr>{['Produto', 'OPs', 'Caixas', 'Pecas', 'Al. Bruto kg', 'Retorno kg', 'Perdas pcs', 'Horas', 'Cx/Hora', 'Al/Cx'].map((h) => <Th key={h}>{h}</Th>)}</tr></thead>
+          <thead><tr>{cols.map((c) => <Th key={c.key || c.label} sortKey={c.key || undefined} sortState={sort} onSort={handleSort}>{c.label}</Th>)}</tr></thead>
           <tbody>
-            {rows.map((r, i) => (<tr key={i} className="hover:bg-slate-50">
-              <Td><span className="font-medium">{r.nome}</span></Td>
+            {rows.map((r) => (<tr key={r.id} className="hover:bg-blue-50 cursor-pointer" onClick={() => setDrillProduto(r.id)}>
+              <Td><span className="font-medium text-blue-700 hover:underline">{r.nome}</span></Td>
               <Td right>{r.ops}</Td><Td right>{r.cx}</Td><Td right>{r.pecas}</Td>
               <Td right>{fmtN(r.al)}</Td><Td right>{fmtN(r.ret)}</Td><Td right>{r.perdas}</Td>
               <Td right>{fmtN(r.h, 1)}</Td><Td right>{fmtN(r.h > 0 ? r.cx / r.h : 0)}</Td>
               <Td right>{fmtN(r.cx > 0 ? r.al / r.cx : 0)}</Td>
             </tr>))}
-            <TotRow label="TOTAL" vals={[rows.reduce((s, r) => s + r.ops, 0), totCx, '--', '--', '--', '--', '--', '--', '--']} />
+            <TotRow label="TOTAL" vals={[rows.reduce((s, r) => s + r.ops, 0), totCx, rows.reduce((s, r) => s + r.pecas, 0), fmtN(rows.reduce((s, r) => s + r.al, 0)), fmtN(rows.reduce((s, r) => s + r.ret, 0)), rows.reduce((s, r) => s + r.perdas, 0), fmtN(rows.reduce((s, r) => s + r.h, 0), 1), '--', '--']} />
           </tbody>
         </table></div>
       </>);
@@ -229,7 +295,7 @@ export default function RelatoriosPage() {
               const prod = produtos.find((pr) => pr.id === p.produto_id);
               const bruto = p.aluminio_bruto ?? 0; const ret = p.peso_retorno ?? 0;
               return (<tr key={i} className="hover:bg-slate-50">
-                <Td>{p.data}</Td><Td>{prod?.nome ?? '--'}</Td><Td right>{p.qtde_caixas}</Td>
+                <Td>{fmtData(p.data)}</Td><Td>{prod?.nome ?? '--'}</Td><Td right>{p.qtde_caixas}</Td>
                 <Td right>{fmtN(bruto)}</Td><Td right>{fmtN(ret)}</Td><Td right>{fmtN(bruto - ret)}</Td>
                 <Td right>{fmtN(p.qtde_caixas > 0 ? bruto / p.qtde_caixas : 0)}</Td>
               </tr>);

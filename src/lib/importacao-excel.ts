@@ -30,7 +30,7 @@ export interface FuncionarioImportado {
 }
 
 export interface ProdutoImportado {
-  codigo: string;
+  codigo?: string;  // não vem do Excel — gerado pelo banco
   nome: string;
   descricao?: string;
   qtd_peca_placa?: number;
@@ -235,13 +235,8 @@ export async function importarProdutos(
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      const codDesc = str(row['Cód Placa - Descrição'] ?? row['Código'] ?? row['Codigo']);
-      if (!codDesc) throw new Error('Código ausente');
-      const firstSpace = codDesc.indexOf(' ');
-      const codigo = firstSpace > 0 ? codDesc.slice(0, firstSpace) : codDesc;
-      const nome   = firstSpace > 0 ? codDesc.slice(firstSpace + 1).trim()
-        : str(row['Nome'] ?? row['Descrição'] ?? '');
-      if (!nome) throw new Error('Nome ausente');
+      const nome = str(row['Cód Placa - Descrição'] ?? row['Nome'] ?? row['Descrição']);
+      if (!nome) throw new Error('Nome/Descrição ausente');
 
       const tipo_raw = str(row['Tipo de Material'] ?? row['Tipo'] ?? '').toLowerCase();
       const tipo_material: 'lingote'|'sucata'|'mistura'|undefined =
@@ -250,7 +245,6 @@ export async function importarProdutos(
         tipo_raw.includes('mistura') ? 'mistura' : undefined;
 
       result.dados.push({
-        codigo: codigo.toUpperCase(),
         nome,
         qtd_peca_placa:     Math.round(num(row['Qdt Peça Placa'] ?? row['Qtde Pecas'])) || undefined,
         peso_peca:          num(row['Peso Pç'] ?? row['Peso Peca'])  || undefined,
@@ -347,17 +341,12 @@ export async function importarPlanilhaCompleta(
     }
   });
 
-  // Produtos
-  // Coluna "Cód Placa - Descrição" = "0429013 BICA DUPLA" → código=primeiro token, nome=resto
+  // Produtos — usa o campo completo como nome; código é gerado pelo banco
   prodRows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      const codDesc = str(row['Cód Placa - Descrição'] ?? row['Código'] ?? row['Codigo']);
-      if (!codDesc) throw new Error('Coluna "Cód Placa - Descrição" ausente');
-      const firstSpace = codDesc.indexOf(' ');
-      const codigo = firstSpace > 0 ? codDesc.slice(0, firstSpace) : codDesc;
-      const nome   = firstSpace > 0 ? codDesc.slice(firstSpace + 1).trim() : codDesc;
-      if (!nome) throw new Error('Nome ausente após separar código');
+      const nome = str(row['Cód Placa - Descrição'] ?? row['Descrição'] ?? row['Nome']);
+      if (!nome) throw new Error('Coluna "Cód Placa - Descrição" ausente ou vazia');
 
       const tipo_raw = str(row['Tipo de Material'] ?? '').toLowerCase();
       const tipo_material: 'lingote'|'sucata'|'mistura' =
@@ -365,7 +354,6 @@ export async function importarPlanilhaCompleta(
         tipo_raw.includes('sucata')  ? 'sucata'  : 'mistura';
 
       produtos.dados.push({
-        codigo: codigo.toUpperCase(),
         nome,
         qtd_peca_placa:     Math.round(num(row['Qdt Peça Placa'])) || undefined,
         peso_peca:          num(row['Peso Pç'])           || undefined,
@@ -374,7 +362,7 @@ export async function importarPlanilhaCompleta(
         qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'])) || undefined,
         peso_macho:         num(row['Peso Macho'])         || undefined,
         tipo_material,
-        preco_venda_kg:     num(row['Prço/Kg'] ?? row['Preço/Kg'] ?? row['Preco/Kg']) || undefined,
+        preco_venda_kg:     num(row['Prço/Kg'] ?? row['Preço/Kg']) || undefined,
         custo_adicional:    num(row['Usinagem Pintura Outros']) || undefined,
         cliente_nome:       str(row['Cliente']) || undefined,
       });

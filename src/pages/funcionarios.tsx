@@ -19,6 +19,7 @@ interface FormData {
   salario: string;
   cartao_beneficio: string;
   pin_tablet: string;
+  codigo_erp: string;
 }
 
 const FORM_VAZIO: FormData = {
@@ -31,6 +32,7 @@ const FORM_VAZIO: FormData = {
   salario: '0',
   cartao_beneficio: '0',
   pin_tablet: '',
+  codigo_erp: '',
 };
 
 function fmtBrl(n?: number | null) {
@@ -81,6 +83,7 @@ export default function FuncionariosPage() {
       salario: String(f.salario ?? 0),
       cartao_beneficio: String(f.cartao_beneficio ?? 0),
       pin_tablet: f.pin_tablet ?? '',
+      codigo_erp: f.codigo_erp ?? '',
     });
     setErro('');
     setShowModal(true);
@@ -101,6 +104,7 @@ export default function FuncionariosPage() {
       salario: parseFloat(formData.salario) || 0,
       cartao_beneficio: parseFloat(formData.cartao_beneficio) || 0,
       pin_tablet: formData.pin_tablet.trim() || null,
+      codigo_erp: formData.codigo_erp.trim() || null,
     };
 
     try {
@@ -166,6 +170,7 @@ export default function FuncionariosPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-100">
                 <tr>
+                  <th className="p-3 text-left">Código</th>
                   <th className="p-3 text-left">Nome</th>
                   <th className="p-3 text-left">Função</th>
                   <th className="p-3 text-right">Salário</th>
@@ -178,6 +183,7 @@ export default function FuncionariosPage() {
               <tbody>
                 {funcionarios.map((f) => (
                   <tr key={f.id} className="border-b hover:bg-slate-50">
+                    <td className="p-3 font-mono text-xs text-slate-500">{f.codigo ?? '—'}</td>
                     <td className="p-3 font-semibold">{f.nome}</td>
                     <td className="p-3 text-slate-600">{f.funcao}</td>
                     <td className="p-3 text-right font-mono">{fmtBrl(f.salario)}</td>
@@ -261,6 +267,10 @@ export default function FuncionariosPage() {
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">PIN Tablet (6 dígitos)</label>
                 <input maxLength={6} className="form-input" value={formData.pin_tablet} onChange={setF('pin_tablet')} placeholder="123456" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Código ERP / Externo</label>
+                <input className="form-input" value={formData.codigo_erp} onChange={setF('codigo_erp')} placeholder="Código do sistema anterior (opcional)" />
               </div>
             </div>
             {custoHoraCalc && (

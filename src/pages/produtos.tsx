@@ -84,7 +84,7 @@ export default function ProdutosPage() {
   const abrirEditar = (p: Produto) => {
     setEditando(p);
     setFormData({
-      codigo: p.codigo,
+      codigo: p.codigo ?? '',
       nome: p.nome,
       descricao: p.descricao ?? '',
       qtd_peca_placa: String(p.qtd_peca_placa ?? 1),
@@ -170,7 +170,7 @@ export default function ProdutosPage() {
       setFormData((prev) => ({ ...prev, [field]: e.target.value }));
 
   const produtosFiltrados = produtos.filter((p) => {
-    const matchBusca = !busca || p.codigo.toLowerCase().includes(busca.toLowerCase()) || p.nome.toLowerCase().includes(busca.toLowerCase());
+    const matchBusca = !busca || (p.codigo ?? '').toLowerCase().includes(busca.toLowerCase()) || p.nome.toLowerCase().includes(busca.toLowerCase()) || (p.codigo_erp ?? '').toLowerCase().includes(busca.toLowerCase());
     const matchCliente = !filtroCliente || p.cliente_id === filtroCliente;
     return matchBusca && matchCliente;
   });

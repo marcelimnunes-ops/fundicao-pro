@@ -1,6 +1,7 @@
 export interface Funcionario {
   id: string;
-  codigo?: string;
+  codigo?: string;       // gerado automaticamente: FUNC-0001
+  codigo_erp?: string;   // preenchimento manual posterior
   nome: string;
   funcao: string;
   cpf?: string;
@@ -18,7 +19,8 @@ export interface Funcionario {
 
 export interface Cliente {
   id: string;
-  codigo?: string;
+  codigo?: string;       // gerado automaticamente: CLI-0001
+  codigo_erp?: string;   // preenchimento manual posterior
   razao_social: string;
   nome_fantasia?: string;
   cnpj?: string;
@@ -44,7 +46,8 @@ export interface Cliente {
 
 export interface Produto {
   id: string;
-  codigo: string;
+  codigo?: string;       // gerado automaticamente: PRD-0001
+  codigo_erp?: string;   // preenchimento manual posterior
   nome: string;
   descricao?: string;
   // Características físicas

@@ -242,56 +242,54 @@ export default function ImportacaoPage() {
       if (c.nome_fantasia) clienteMap.set(c.nome_fantasia.trim().toLowerCase(), c.id);
     }
 
-    const { data: existing, error: errExP } = await supabase.from('produtos').select('codigo');
+    // deduplicação por nome (não por código — código é gerado pelo banco)
+    const { data: existing, error: errExP } = await supabase.from('produtos').select('nome');
     if (errExP || !existing) {
       prog.log('error', `Falha ao consultar produtos: ${errExP?.message ?? 'sem dados'}`);
-      prog.log('warn', 'Verifique: rode o SQL supabase-fix-colunas.sql e recarregue o schema');
       prog.set({ erros: prog.ref.current.erros + rows.length, atual: prog.ref.current.atual + rows.length });
       return;
     }
-    const vistos = new Set(existing.map((r: { codigo: string }) => r.codigo.trim().toLowerCase()));
+    const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i] as ProdutoImportado & { cliente_nome?: string };
+      const r = rows[i];
       prog.set({ atual: prog.ref.current.atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
 
-      if (vistos.has(r.codigo.trim().toLowerCase())) {
-        prog.log('skip', `[P${i + 1}] Pulado (já existe): ${r.codigo}`);
+      if (vistos.has(r.nome.trim().toLowerCase())) {
+        prog.log('skip', `[P${i + 1}] Pulado (já existe): ${r.nome}`);
         prog.set({ pulados: prog.ref.current.pulados + 1 });
         continue;
       }
 
-      // resolve cliente_id se tiver campo cliente_nome
       let clienteId: string | null = null;
       if (r.cliente_nome) {
         clienteId = clienteMap.get(r.cliente_nome.trim().toLowerCase()) ?? null;
         if (!clienteId) prog.log('warn', `[P${i + 1}] Cliente não encontrado: "${r.cliente_nome}"`);
       }
 
-      prog.log('info', `[P${i + 1}] Inserindo: ${r.codigo} — ${r.nome}…`);
+      prog.log('info', `[P${i + 1}] Inserindo: ${r.nome}…`);
       const { error } = await supabase.from('produtos').insert({
-        codigo: r.codigo,
+        // código é gerado automaticamente pelo banco (sequência PRD-0001)
         nome: r.nome,
-        descricao: r.descricao ?? null,
         qtd_peca_placa:       r.qtd_peca_placa ?? 1,
         peso_peca:            r.peso_peca ?? 0,
         peso_galho:           r.peso_total_galho ?? 0,
         percentual_retorno:   r.percentual_retorno ?? null,
         qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? 0,
-        peso_macho: r.peso_macho ?? null,
-        tipo_material:  r.tipo_material ?? 'sucata',
-        preco_venda_kg: r.preco_venda_kg ?? null,
-        custo_adicional: r.custo_adicional ?? 0,
-        cliente_id: clienteId,
+        peso_macho:           r.peso_macho ?? null,
+        tipo_material:        r.tipo_material ?? 'sucata',
+        preco_venda_kg:       r.preco_venda_kg ?? null,
+        custo_adicional:      r.custo_adicional ?? 0,
+        cliente_id:           clienteId,
       });
 
       if (error) {
-        prog.log('error', `[P${i + 1}] ERRO: ${r.codigo} → ${error.message}`);
+        prog.log('error', `[P${i + 1}] ERRO: ${r.nome} → ${error.message}`);
         prog.set({ erros: prog.ref.current.erros + 1 });
       } else {
-        prog.log('ok', `[P${i + 1}] OK — ${r.codigo}`);
+        prog.log('ok', `[P${i + 1}] OK — ${r.nome}`);
         prog.set({ inseridos: prog.ref.current.inseridos + 1 });
-        vistos.add(r.codigo.trim().toLowerCase());
+        vistos.add(r.nome.trim().toLowerCase());
       }
     }
   }

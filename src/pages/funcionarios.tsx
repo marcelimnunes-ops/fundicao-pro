@@ -1,10 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import Layout from '@/components/Layout';
-import { Card, Badge, Modal } from '@/components/ui';
+import { Badge, Modal } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import type { Funcionario } from '@/lib/types';
 
 interface Funcao { id: string; nome: string }
+
+interface FuncStats {
+  id: string;
+  total_caixas: number;
+  total_apontamentos: number;
+  caixas_ultimo_mes: number;
+  perda_media_pct: number;
+  cx_hora_medio: number;
+}
 
 interface FormData {
   nome: string;
@@ -17,29 +26,23 @@ interface FormData {
 }
 
 const FORM_VAZIO: FormData = {
-  nome: '',
-  funcao: '',
-  data_admissao: '',
-  salario: '',
-  cartao_beneficio: '',
-  pin_tablet: '',
-  codigo_erp: '',
+  nome: '', funcao: '', data_admissao: '',
+  salario: '', cartao_beneficio: '',
+  pin_tablet: '', codigo_erp: '',
 };
 
 function fmtBrl(n?: number | null) {
-  if (n == null || n === 0) return '—';
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function fmtCusto(n?: number | null) {
   if (!n) return '—';
-  return `R$ ${n.toFixed(2)}/h`;
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 export default function FuncionariosPage() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [funcoes, setFuncoes] = useState<Funcao[]>([]);
+  const [fstats, setFstats] = useState<Map<string, FuncStats>>(new Map());
   const [busca, setBusca] = useState('');
+  const [sugestoes, setSugestoes] = useState<Funcionario[]>([]);
+  const [showSugestoes, setShowSugestoes] = useState(false);
   const [filtroFuncao, setFiltroFuncao] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -49,58 +52,80 @@ export default function FuncionariosPage() {
   const [novaFuncao, setNovaFuncao] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const [viewMode, setViewMode] = useState<'cards' | 'tabela'>('cards');
+  const buscaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { carregar(); }, []);
 
   const carregar = async () => {
     setLoading(true);
-    const [{ data: f }, { data: fn }] = await Promise.all([
+    const [{ data: f }, { data: fn }, { data: prod }] = await Promise.all([
       supabase.from('funcionarios').select('*').order('nome'),
       supabase.from('funcoes').select('id, nome').eq('ativo', true).order('nome'),
+      supabase.from('producao').select('moldador_id, ajudante_id, qtde_caixas, perdas_peca, tempo_horas, data'),
     ]);
     setFuncionarios((f as Funcionario[]) || []);
     setFuncoes((fn as Funcao[]) || []);
+
+    // stats por funcionário
+    const hoje = new Date();
+    const primeiroDiaMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().split('T')[0];
+    const mapa = new Map<string, FuncStats>();
+    const ensureFunc = (id: string) => {
+      if (!mapa.has(id)) mapa.set(id, { id, total_caixas: 0, total_apontamentos: 0, caixas_ultimo_mes: 0, perda_media_pct: 0, cx_hora_medio: 0 });
+      return mapa.get(id)!;
+    };
+    for (const ap of (prod ?? []) as Array<{ moldador_id: string; ajudante_id?: string; qtde_caixas: number; perdas_peca: number; tempo_horas: number; data: string }>) {
+      for (const fid of [ap.moldador_id, ap.ajudante_id].filter(Boolean) as string[]) {
+        const s = ensureFunc(fid);
+        s.total_caixas += ap.qtde_caixas;
+        s.total_apontamentos++;
+        if (ap.data >= primeiroDiaMes) s.caixas_ultimo_mes += ap.qtde_caixas;
+        s.perda_media_pct += ap.qtde_caixas > 0 ? ap.perdas_peca / ap.qtde_caixas * 100 : 0;
+        s.cx_hora_medio += ap.tempo_horas > 0 ? ap.qtde_caixas / ap.tempo_horas : 0;
+      }
+    }
+    mapa.forEach((s) => {
+      if (s.total_apontamentos > 0) {
+        s.perda_media_pct /= s.total_apontamentos;
+        s.cx_hora_medio /= s.total_apontamentos;
+      }
+    });
+    setFstats(mapa);
     setLoading(false);
   };
 
   const abrirNovo = () => {
     setEditando(null);
     setFormData({ ...FORM_VAZIO, funcao: funcoes[0]?.nome ?? '' });
-    setErro('');
-    setShowModal(true);
+    setErro(''); setShowModal(true);
   };
 
   const abrirEditar = (f: Funcionario) => {
     setEditando(f);
     setFormData({
-      nome: f.nome,
-      funcao: f.funcao ?? '',
+      nome: f.nome, funcao: f.funcao ?? '',
       data_admissao: f.data_admissao ?? '',
       salario: f.salario ? String(f.salario) : '',
       cartao_beneficio: f.cartao_beneficio ? String(f.cartao_beneficio) : '',
       pin_tablet: f.pin_tablet ?? '',
       codigo_erp: f.codigo_erp ?? '',
     });
-    setErro('');
-    setShowModal(true);
+    setErro(''); setShowModal(true);
   };
 
   const handleSalvar = async () => {
     if (!formData.nome.trim()) { setErro('Nome é obrigatório'); return; }
     if (!formData.funcao) { setErro('Selecione uma função'); return; }
-    setSalvando(true);
-    setErro('');
-
+    setSalvando(true); setErro('');
     const payload = {
-      nome: formData.nome.trim(),
-      funcao: formData.funcao,
+      nome: formData.nome.trim(), funcao: formData.funcao,
       data_admissao: formData.data_admissao || null,
       salario: parseFloat(formData.salario.replace(',', '.')) || 0,
       cartao_beneficio: parseFloat(formData.cartao_beneficio.replace(',', '.')) || 0,
       pin_tablet: formData.pin_tablet.trim() || null,
       codigo_erp: formData.codigo_erp.trim() || null,
     };
-
     try {
       if (editando) {
         const { data, error } = await supabase.from('funcionarios').update(payload).eq('id', editando.id).select().single();
@@ -112,11 +137,8 @@ export default function FuncionariosPage() {
         setFuncionarios((prev) => [...prev, data as Funcionario]);
       }
       setShowModal(false);
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao salvar');
-    } finally {
-      setSalvando(false);
-    }
+    } catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao salvar'); }
+    finally { setSalvando(false); }
   };
 
   const handleSalvarFuncao = async () => {
@@ -125,8 +147,7 @@ export default function FuncionariosPage() {
     if (error) { alert(error.message); return; }
     setFuncoes((prev) => [...prev, data as Funcao].sort((a, b) => a.nome.localeCompare(b.nome)));
     setFormData((prev) => ({ ...prev, funcao: (data as Funcao).nome }));
-    setNovaFuncao('');
-    setShowFuncaoModal(false);
+    setNovaFuncao(''); setShowFuncaoModal(false);
   };
 
   const handleDeletar = async (id: string) => {
@@ -152,21 +173,28 @@ export default function FuncionariosPage() {
     return s + c > 0 ? ((s + c) / 176).toFixed(2) : null;
   })();
 
-  const lista = funcionarios.filter((f) => {
+  const handleBusca = (val: string) => {
+    setBusca(val);
+    if (val.trim().length >= 1) {
+      const q = val.toLowerCase();
+      setSugestoes(funcionarios.filter((f) => f.nome.toLowerCase().includes(q)).slice(0, 6));
+      setShowSugestoes(true);
+    } else { setSugestoes([]); setShowSugestoes(false); }
+  };
+
+  const lista = useMemo(() => funcionarios.filter((f) => {
     const q = busca.toLowerCase();
-    const matchBusca = !q || f.nome.toLowerCase().includes(q) || (f.codigo ?? '').toLowerCase().includes(q) || (f.codigo_erp ?? '').toLowerCase().includes(q);
+    const matchBusca = !q || f.nome.toLowerCase().includes(q) || (f.codigo ?? '').toLowerCase().includes(q);
     const matchFuncao = !filtroFuncao || f.funcao === filtroFuncao;
     return matchBusca && matchFuncao;
-  });
+  }), [funcionarios, busca, filtroFuncao]);
 
   const ativos = funcionarios.filter((f) => f.ativo).length;
 
   if (loading) {
     return (
       <Layout title="Funcionários">
-        <div className="flex items-center justify-center py-20">
-          <div className="spinner w-10 h-10" />
-        </div>
+        <div className="flex items-center justify-center py-20"><div className="spinner w-10 h-10" /></div>
       </Layout>
     );
   }
@@ -174,7 +202,6 @@ export default function FuncionariosPage() {
   return (
     <Layout title="Funcionários">
       <div className="space-y-5">
-
         {/* Sumário */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
@@ -183,185 +210,246 @@ export default function FuncionariosPage() {
             { label: 'Inativos', value: funcionarios.length - ativos, color: 'text-red-500' },
             { label: 'Funções', value: funcoes.length, color: 'text-blue-600' },
           ].map((s) => (
-            <Card key={s.label}>
-              <p className="text-xs text-slate-500 uppercase tracking-wide">{s.label}</p>
+            <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">{s.label}</p>
               <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-            </Card>
+            </div>
           ))}
         </div>
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <div className="flex gap-3 flex-1">
-            <input
-              className="form-input flex-1 max-w-xs"
-              placeholder="Buscar por nome ou código…"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
+          <div className="flex gap-3 flex-1 flex-wrap">
+            <div className="relative max-w-xs flex-1">
+              <input
+                ref={buscaRef}
+                className="form-input w-full"
+                placeholder="Buscar por nome…"
+                value={busca}
+                onChange={(e) => handleBusca(e.target.value)}
+                onFocus={() => busca && setShowSugestoes(true)}
+                onBlur={() => setTimeout(() => setShowSugestoes(false), 150)}
+              />
+              {showSugestoes && sugestoes.length > 0 && (
+                <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+                  {sugestoes.map((f) => (
+                    <button key={f.id} className="w-full text-left px-4 py-2 text-sm hover:bg-orange-50"
+                      onMouseDown={() => { setBusca(f.nome); setShowSugestoes(false); }}>
+                      {f.nome} <span className="text-xs text-slate-400 ml-1">{f.funcao}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <select className="form-select w-44" value={filtroFuncao} onChange={(e) => setFiltroFuncao(e.target.value)}>
               <option value="">Todas as funções</option>
               {funcoes.map((fn) => <option key={fn.id} value={fn.nome}>{fn.nome}</option>)}
             </select>
           </div>
-          <button className="btn-primary whitespace-nowrap" onClick={abrirNovo}>+ Novo Funcionário</button>
+          <div className="flex gap-2 items-center">
+            <button className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${viewMode === 'cards' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'}`}
+              onClick={() => setViewMode('cards')}>Cards</button>
+            <button className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${viewMode === 'tabela' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'}`}
+              onClick={() => setViewMode('tabela')}>Tabela</button>
+            <button className="btn-primary whitespace-nowrap" onClick={abrirNovo}>+ Novo</button>
+          </div>
         </div>
 
-        {/* Tabela */}
-        <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Código</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Nome</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Função</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Salário</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Cartão</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Custo/h</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {lista.map((f) => (
-                  <tr key={f.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{f.codigo ?? '—'}</span>
-                      {f.codigo_erp && <span className="ml-1 font-mono text-xs text-slate-400">({f.codigo_erp})</span>}
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{f.nome}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                        {f.funcao}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-sm">{fmtBrl(f.salario)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-sm">{fmtBrl(f.cartao_beneficio)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-slate-700">{fmtCusto(f.custo_hora)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <Badge variant={f.ativo ? 'success' : 'danger'}>{f.ativo ? 'Ativo' : 'Inativo'}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2 justify-center">
-                        <button onClick={() => abrirEditar(f)} className="text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline">Editar</button>
-                        <button onClick={() => handleToggleAtivo(f)} className="text-xs text-amber-600 hover:text-amber-800 font-semibold hover:underline">{f.ativo ? 'Inativar' : 'Ativar'}</button>
-                        <button onClick={() => handleDeletar(f.id)} className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline">Remover</button>
+        {/* View: Cards */}
+        {viewMode === 'cards' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {lista.map((f) => {
+              const s = fstats.get(f.id);
+              const custo = f.custo_hora ?? ((f.salario + (f.cartao_beneficio ?? 0)) / 176);
+              return (
+                <div key={f.id} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                  <div className="px-4 pt-4 pb-2 border-b border-slate-100">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-slate-900 truncate">{f.nome}</h3>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 mt-1">
+                          {f.funcao}
+                        </span>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-                {lista.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
-                      {busca || filtroFuncao ? 'Nenhum resultado para o filtro atual' : 'Nenhum funcionário cadastrado'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <Badge variant={f.ativo ? 'success' : 'danger'}>{f.ativo ? 'Ativo' : 'Inativo'}</Badge>
+                    </div>
+                  </div>
+
+                  {/* KPIs de produção */}
+                  {s && s.total_apontamentos > 0 ? (
+                    <div className="grid grid-cols-3 gap-0 border-b border-slate-100">
+                      <div className="px-3 py-3 text-center border-r border-slate-100">
+                        <p className="text-xs text-slate-400">Cx/mês</p>
+                        <p className="text-lg font-bold text-orange-600">{s.caixas_ultimo_mes}</p>
+                      </div>
+                      <div className="px-3 py-3 text-center border-r border-slate-100">
+                        <p className="text-xs text-slate-400">Cx/hora</p>
+                        <p className="text-lg font-bold text-slate-800">{s.cx_hora_medio.toFixed(1)}</p>
+                      </div>
+                      <div className="px-3 py-3 text-center">
+                        <p className="text-xs text-slate-400">% Perda</p>
+                        <p className={`text-lg font-bold ${s.perda_media_pct > 5 ? 'text-red-500' : s.perda_media_pct > 2 ? 'text-yellow-600' : 'text-green-600'}`}>
+                          {s.perda_media_pct.toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="px-4 py-3 text-xs text-slate-400 border-b border-slate-100">
+                      Sem produção registrada
+                    </div>
+                  )}
+
+                  {/* Financeiro */}
+                  <div className="px-4 py-3 grid grid-cols-3 gap-2 text-xs border-b border-slate-100">
+                    <div>
+                      <p className="text-slate-400">Salário</p>
+                      <p className="font-semibold text-slate-700">{fmtBrl(f.salario)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400">Cartão</p>
+                      <p className="font-semibold text-slate-700">{fmtBrl(f.cartao_beneficio)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400">Custo/h</p>
+                      <p className="font-semibold text-blue-700">R$ {custo.toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  {/* Ações */}
+                  <div className="px-4 pb-3 flex gap-2">
+                    <button onClick={() => abrirEditar(f)} className="flex-1 btn-secondary text-xs py-1.5">Editar</button>
+                    <button onClick={() => handleToggleAtivo(f)} className="text-amber-600 hover:text-amber-800 text-xs font-semibold px-2">{f.ativo ? 'Inativar' : 'Ativar'}</button>
+                    <button onClick={() => handleDeletar(f.id)} className="text-red-500 hover:text-red-700 text-xs font-semibold px-2">✕</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </Card>
+        )}
+
+        {/* View: Tabela */}
+        {viewMode === 'tabela' && (
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Código</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Nome</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Função</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Salário</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Cartão</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Custo/h</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Cx/mês</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Status</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {lista.map((f) => {
+                    const s = fstats.get(f.id);
+                    const custo = f.custo_hora ?? ((f.salario + (f.cartao_beneficio ?? 0)) / 176);
+                    return (
+                      <tr key={f.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{f.codigo ?? '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{f.nome}</td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{f.funcao}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-sm">{fmtBrl(f.salario)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sm">{fmtBrl(f.cartao_beneficio)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-blue-700">R$ {custo.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-center tabular-nums">{s?.caixas_ultimo_mes ?? 0}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant={f.ativo ? 'success' : 'danger'}>{f.ativo ? 'Ativo' : 'Inativo'}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2 justify-center">
+                            <button onClick={() => abrirEditar(f)} className="text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline">Editar</button>
+                            <button onClick={() => handleToggleAtivo(f)} className="text-xs text-amber-600 hover:text-amber-800 font-semibold hover:underline">{f.ativo ? 'Inativar' : 'Ativar'}</button>
+                            <button onClick={() => handleDeletar(f.id)} className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline">Remover</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {lista.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                        {busca || filtroFuncao ? 'Nenhum resultado' : 'Nenhum funcionário cadastrado'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modal funcionário */}
-      <Modal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        title={editando ? 'Editar Funcionário' : 'Novo Funcionário'}
-        size="md"
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)}
+        title={editando ? 'Editar Funcionário' : 'Novo Funcionário'} size="md"
         footer={
-          <div className="flex gap-3">
-            <button className="btn-primary" onClick={handleSalvar} disabled={salvando}>
-              {salvando ? 'Salvando…' : 'Salvar'}
-            </button>
+          <div className="flex gap-3 items-center">
+            <button className="btn-primary" onClick={handleSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</button>
             <button className="btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
+            {editando?.codigo && <span className="ml-auto text-xs text-slate-400 font-mono">{editando.codigo}</span>}
           </div>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-3">
           {erro && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{erro}</div>}
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* Nome */}
-            <div className="col-span-2">
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Nome completo <span className="text-red-500">*</span></label>
-              <input className="form-input" value={formData.nome} onChange={setF('nome')} placeholder="Ex: João da Silva" autoFocus />
-            </div>
-
-            {/* Função */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Nome completo <span className="text-red-500">*</span></label>
+            <input className="form-input" value={formData.nome} onChange={setF('nome')} placeholder="Ex: João da Silva" autoFocus />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Função <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Função <span className="text-red-500">*</span></label>
               <div className="flex gap-2">
                 <select className="form-select flex-1" value={formData.funcao} onChange={setF('funcao')}>
                   <option value="">Selecione…</option>
                   {funcoes.map((fn) => <option key={fn.id} value={fn.nome}>{fn.nome}</option>)}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => { setNovaFuncao(''); setShowFuncaoModal(true); }}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-semibold transition-colors"
-                  title="Nova função"
-                >+</button>
+                <button type="button" onClick={() => { setNovaFuncao(''); setShowFuncaoModal(true); }}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-semibold transition-colors" title="Nova função">+</button>
               </div>
             </div>
-
-            {/* Admissão */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Data Admissão</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Data Admissão</label>
               <input type="date" className="form-input" value={formData.data_admissao} onChange={setF('data_admissao')} />
             </div>
-
-            {/* Salário */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Salário (R$)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Salário (R$)</label>
               <input type="number" step="0.01" min="0" className="form-input" value={formData.salario} onChange={setF('salario')} placeholder="0,00" />
             </div>
-
-            {/* Cartão */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Cartão Benefício (R$)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Cartão Benefício (R$)</label>
               <input type="number" step="0.01" min="0" className="form-input" value={formData.cartao_beneficio} onChange={setF('cartao_beneficio')} placeholder="0,00" />
             </div>
-
-            {/* PIN */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">PIN Tablet</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">PIN Tablet</label>
               <input maxLength={6} className="form-input" value={formData.pin_tablet} onChange={setF('pin_tablet')} placeholder="6 dígitos" />
             </div>
-
-            {/* ERP */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Código ERP</label>
-              <input className="form-input" value={formData.codigo_erp} onChange={setF('codigo_erp')} placeholder="Código externo (opcional)" />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Código ERP</label>
+              <input className="form-input" value={formData.codigo_erp} onChange={setF('codigo_erp')} placeholder="Código externo" />
             </div>
           </div>
-
-          {/* Preview custo/hora */}
           {custoCalc && (
             <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
-              <span>🧮</span>
               <span>Custo/hora calculado: <strong>R$ {custoCalc}/h</strong></span>
-              <span className="text-blue-500 text-xs ml-1">= (salário + cartão) ÷ 176 h</span>
-            </div>
-          )}
-
-          {/* Código auto (modo edição) */}
-          {editando?.codigo && (
-            <div className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500">
-              <span>Código automático:</span>
-              <span className="font-mono font-semibold text-slate-700">{editando.codigo}</span>
+              <span className="text-blue-500 text-xs">(salário + cartão) ÷ 176 h</span>
             </div>
           )}
         </div>
       </Modal>
 
       {/* Modal nova função */}
-      <Modal
-        isOpen={showFuncaoModal}
-        onClose={() => setShowFuncaoModal(false)}
-        title="Nova Função"
-        size="sm"
+      <Modal isOpen={showFuncaoModal} onClose={() => setShowFuncaoModal(false)} title="Nova Função" size="sm"
         footer={
           <div className="flex gap-3">
             <button className="btn-primary" onClick={handleSalvarFuncao}>Salvar</button>
@@ -371,14 +459,8 @@ export default function FuncionariosPage() {
       >
         <div>
           <label className="block text-sm font-semibold text-slate-700 mb-2">Nome da função</label>
-          <input
-            className="form-input"
-            value={novaFuncao}
-            onChange={(e) => setNovaFuncao(e.target.value)}
-            placeholder="Ex: Operador CNC"
-            onKeyDown={(e) => e.key === 'Enter' && handleSalvarFuncao()}
-            autoFocus
-          />
+          <input className="form-input" value={novaFuncao} onChange={(e) => setNovaFuncao(e.target.value)}
+            placeholder="Ex: Operador CNC" onKeyDown={(e) => e.key === 'Enter' && handleSalvarFuncao()} autoFocus />
         </div>
       </Modal>
     </Layout>

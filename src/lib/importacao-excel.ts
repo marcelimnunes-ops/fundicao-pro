@@ -130,6 +130,13 @@ export async function listarAbas(file: File): Promise<string[]> {
   });
 }
 
+// Normaliza keys: remove espaços em branco dos nomes de colunas do Excel
+function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) out[k.trim()] = v;
+  return out;
+}
+
 function str(val: unknown): string {
   return val != null ? String(val).trim() : '';
 }
@@ -333,12 +340,8 @@ export async function importarPlanilhaCompleta(
   const apontamentos: ImportacaoResult<ApontamentoImportado> = { sucesso: 0, erros: [], dados: [] };
 
   // Profissionais
-  if (profRows.length > 0) {
-    // log das colunas da primeira linha para diagnóstico
-    const colsProf = Object.keys(profRows[0]);
-    funcionarios.erros.push({ linha: 0, erro: `[DEBUG] colunas encontradas: ${colsProf.join(' | ')}` });
-  }
   profRows.forEach((row, i) => {
+    row = normalizeRow(row);
     const linha = i + 2;
     try {
       const nome = str(row['Nome']);
@@ -367,7 +370,8 @@ export async function importarPlanilhaCompleta(
 
   // Clientes únicos extraídos da coluna "Cliente" dos produtos
   const clientesVistos = new Set<string>();
-  prodRows.forEach((row) => {
+  prodRows.forEach((rawRow) => {
+    const row = normalizeRow(rawRow);
     const nome = str(row['Cliente']);
     if (nome && !clientesVistos.has(nome)) {
       clientesVistos.add(nome);
@@ -378,6 +382,7 @@ export async function importarPlanilhaCompleta(
 
   // Produtos — usa o campo completo como nome; código é gerado pelo banco
   prodRows.forEach((row, i) => {
+    row = normalizeRow(row);
     const linha = i + 2;
     try {
       const nome = str(row['Cód Placa - Descrição'] ?? row['Descrição'] ?? row['Nome']);
@@ -409,6 +414,7 @@ export async function importarPlanilhaCompleta(
 
   // Apontamentos (da aba Produção)
   apontRows.forEach((row, i) => {
+    row = normalizeRow(row);
     const linha = i + 2;
     try {
       const moldador_nome = str(row['Moldador']);

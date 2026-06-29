@@ -128,6 +128,30 @@ export default function ImportacaoPage() {
   // ── atalho para o singleton ─────────────────────────
   const ist = importacaoState;
 
+  // Insere em lotes para performance — reduz N+1 queries
+  async function batchInsert(
+    tabela: string,
+    items: Record<string, unknown>[],
+    fase: string,
+    labelFn: (r: Record<string, unknown>) => string,
+  ) {
+    const LOTE = 50;
+    for (let i = 0; i < items.length; i += LOTE) {
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return false; }
+      const lote = items.slice(i, Math.min(i + LOTE, items.length));
+      ist.set({ atual: ist.get().atual + lote.length, fase: `${fase} ${Math.min(i + LOTE, items.length)}/${items.length}` });
+      const { error } = await supabase.from(tabela).insert(lote);
+      if (error) {
+        ist.log('error', `ERRO lote ${i / LOTE + 1} (${fase}): ${error.message}`);
+        ist.set({ erros: ist.get().erros + lote.length });
+      } else {
+        lote.forEach((r) => ist.log('ok', `✓ ${labelFn(r)}`));
+        ist.set({ inseridos: ist.get().inseridos + lote.length });
+      }
+    }
+    return true;
+  }
+
   async function salvarFuncionarios(rows: FuncionarioImportado[]) {
     ist.log('section', `── Funcionários (${rows.length}) ──`);
     const { data: existing, error: errEx } = await supabase.from('funcionarios').select('nome');
@@ -137,23 +161,18 @@ export default function ImportacaoPage() {
       return;
     }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-    for (let i = 0; i < rows.length; i++) {
-      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
-      const r = rows[i];
-      ist.set({ atual: ist.get().atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
+    const novos: Array<Record<string, unknown>> = [];
+    for (const r of rows) {
       if (vistos.has(r.nome.trim().toLowerCase())) {
-        ist.log('skip', `[F${i + 1}] Pulado (já existe): ${r.nome}`);
-        ist.set({ pulados: ist.get().pulados + 1 });
-        continue;
+        ist.log('skip', `Pulado (já existe): ${r.nome}`);
+        ist.set({ pulados: ist.get().pulados + 1, atual: ist.get().atual + 1 });
+      } else {
+        novos.push({ nome: r.nome, funcao: r.funcao, salario: r.salario, cartao_beneficio: r.cartao_beneficio ?? 0, ativo: true });
       }
-      ist.log('info', `[F${i + 1}] Inserindo: ${r.nome} — ${r.funcao}…`);
-      const { error } = await supabase.from('funcionarios').insert({
-        nome: r.nome, funcao: r.funcao,
-        salario: r.salario, cartao_beneficio: r.cartao_beneficio ?? 0,
-      });
-      if (error) { ist.log('error', `[F${i + 1}] ERRO: ${r.nome} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
-      else { ist.log('ok', `[F${i + 1}] OK — ${r.nome}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.nome.trim().toLowerCase()); }
     }
+    if (novos.length > 0) await batchInsert(
+      'funcionarios', novos, 'Funcionários', (r) => String(r.nome)
+    );
   }
 
   async function salvarClientes(rows: ClienteImportado[]) {
@@ -165,22 +184,16 @@ export default function ImportacaoPage() {
       return;
     }
     const vistos = new Set(existing.map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
-    for (let i = 0; i < rows.length; i++) {
-      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
-      const r = rows[i];
-      ist.set({ atual: ist.get().atual + 1, fase: `Clientes ${i + 1}/${rows.length}` });
+    const novos: Array<Record<string, unknown>> = [];
+    for (const r of rows) {
       if (vistos.has(r.razao_social.trim().toLowerCase())) {
-        ist.log('skip', `[C${i + 1}] Pulado (já existe): ${r.razao_social}`);
-        ist.set({ pulados: ist.get().pulados + 1 }); continue;
+        ist.log('skip', `Pulado: ${r.razao_social}`);
+        ist.set({ pulados: ist.get().pulados + 1, atual: ist.get().atual + 1 });
+      } else {
+        novos.push({ razao_social: r.razao_social, nome_fantasia: r.nome_fantasia ?? null, cnpj: r.cnpj ?? null, cidade: r.cidade ?? null, uf: r.uf ?? null, ativo: true });
       }
-      ist.log('info', `[C${i + 1}] Inserindo: ${r.razao_social}…`);
-      const { error } = await supabase.from('clientes').insert({
-        razao_social: r.razao_social, nome_fantasia: r.nome_fantasia ?? null,
-        cnpj: r.cnpj ?? null, cidade: r.cidade ?? null, uf: r.uf ?? null,
-      });
-      if (error) { ist.log('error', `[C${i + 1}] ERRO: ${r.razao_social} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
-      else { ist.log('ok', `[C${i + 1}] OK — ${r.razao_social}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.razao_social.trim().toLowerCase()); }
     }
+    if (novos.length > 0) await batchInsert('clientes', novos, 'Clientes', (r) => String(r.razao_social));
   }
 
   async function salvarProdutos(rows: ProdutoImportado[]) {
@@ -197,28 +210,24 @@ export default function ImportacaoPage() {
       ist.set({ erros: ist.get().erros + rows.length, atual: ist.get().atual + rows.length }); return;
     }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-    for (let i = 0; i < rows.length; i++) {
-      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
-      const r = rows[i];
-      ist.set({ atual: ist.get().atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
+    const novos: Array<Record<string, unknown>> = [];
+    for (const r of rows) {
       if (vistos.has(r.nome.trim().toLowerCase())) {
-        ist.log('skip', `[P${i + 1}] Pulado (já existe): ${r.nome}`);
-        ist.set({ pulados: ist.get().pulados + 1 }); continue;
+        ist.log('skip', `Pulado: ${r.nome}`);
+        ist.set({ pulados: ist.get().pulados + 1, atual: ist.get().atual + 1 }); continue;
       }
       const clienteId = r.cliente_nome ? (clienteMap.get(r.cliente_nome.trim().toLowerCase()) ?? null) : null;
-      if (r.cliente_nome && !clienteId) ist.log('warn', `[P${i + 1}] Cliente não encontrado: "${r.cliente_nome}"`);
-      ist.log('info', `[P${i + 1}] Inserindo: ${r.nome}…`);
-      const { error } = await supabase.from('produtos').insert({
+      if (r.cliente_nome && !clienteId) ist.log('warn', `Cliente não encontrado: "${r.cliente_nome}" para ${r.nome}`);
+      novos.push({
         nome: r.nome, qtd_peca_placa: r.qtd_peca_placa ?? 1,
-        peso_peca: r.peso_peca ?? 0, peso_galho: r.peso_total_galho ?? 0,
+        peso_peca: r.peso_peca ?? 0, peso_total_galho: r.peso_total_galho ?? 0,
         percentual_retorno: r.percentual_retorno ?? null,
         qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? 0, peso_macho: r.peso_macho ?? null,
         tipo_material: r.tipo_material ?? 'sucata', preco_venda_kg: r.preco_venda_kg ?? null,
-        custo_adicional: r.custo_adicional ?? 0, cliente_id: clienteId,
+        custo_adicional: r.custo_adicional ?? 0, cliente_id: clienteId, ativo: true,
       });
-      if (error) { ist.log('error', `[P${i + 1}] ERRO: ${r.nome} → ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
-      else { ist.log('ok', `[P${i + 1}] OK — ${r.nome}`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.nome.trim().toLowerCase()); }
     }
+    if (novos.length > 0) await batchInsert('produtos', novos, 'Produtos', (r) => String(r.nome));
   }
 
   async function salvarApontamentos(rows: ApontamentoImportado[]) {
@@ -235,27 +244,26 @@ export default function ImportacaoPage() {
       if (prod.codigo) prodMap.set(prod.codigo.toLowerCase(), prod.id);
       prodMap.set(prod.nome.toLowerCase(), prod.id);
     }
-    for (let i = 0; i < rows.length; i++) {
-      if (ist.get().cancelado) { ist.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
-      const r = rows[i];
-      ist.set({ atual: ist.get().atual + 1, fase: `Apontamentos ${i + 1}/${rows.length}` });
+
+    const novos: Array<Record<string, unknown>> = [];
+    let erroLocal = 0;
+    for (const r of rows) {
       const moldadorId = funcMap.get(r.moldador_nome.toLowerCase());
       const ajudanteId = r.ajudante_nome ? (funcMap.get(r.ajudante_nome.toLowerCase()) ?? null) : null;
       const produtoId = prodMap.get(r.produto_codigo.toLowerCase());
-      if (!moldadorId) { ist.log('error', `[A${i + 1}] Moldador não encontrado: "${r.moldador_nome}"`); ist.set({ erros: ist.get().erros + 1 }); continue; }
-      if (!produtoId) { ist.log('error', `[A${i + 1}] Produto não encontrado: "${r.produto_codigo}"`); ist.set({ erros: ist.get().erros + 1 }); continue; }
-      if (r.ajudante_nome && !ajudanteId) ist.log('warn', `[A${i + 1}] Ajudante não encontrado: "${r.ajudante_nome}"`);
-      ist.log('info', `[A${i + 1}] ${r.data} | ${r.moldador_nome}${r.ajudante_nome ? ' + ' + r.ajudante_nome : ''} | ${r.produto_codigo} | ${r.qtde_caixas}cx…`);
-      const { error } = await supabase.from('producao').insert({
+      if (!moldadorId) { ist.log('error', `Moldador não encontrado: "${r.moldador_nome}" (${r.data})`); erroLocal++; continue; }
+      if (!produtoId) { ist.log('error', `Produto não encontrado: "${r.produto_codigo}" (${r.data})`); erroLocal++; continue; }
+      if (r.ajudante_nome && !ajudanteId) ist.log('warn', `Ajudante não encontrado: "${r.ajudante_nome}" — sem ajudante`);
+      novos.push({
         data: r.data, numero_op: r.numero_op ?? null,
         moldador_id: moldadorId, ajudante_id: ajudanteId, produto_id: produtoId,
         qtde_caixas: r.qtde_caixas, aluminio_bruto: r.aluminio_bruto,
         peso_retorno: r.peso_retorno, perdas_peca: r.perdas_peca,
         consumo_oleo: r.consumo_oleo, tempo_horas: r.tempo_horas,
       });
-      if (error) { ist.log('error', `[A${i + 1}] ERRO: ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
-      else { ist.log('ok', `[A${i + 1}] OK`); ist.set({ inseridos: ist.get().inseridos + 1 }); }
     }
+    if (erroLocal > 0) ist.set({ erros: ist.get().erros + erroLocal, atual: ist.get().atual + erroLocal });
+    if (novos.length > 0) await batchInsert('producao', novos, 'Apontamentos', (r) => `${r.data} | ${String(r.moldador_id).slice(0,8)}`);
   }
 
   // ── orquestração principal ───────────────────────────

@@ -16,11 +16,17 @@ CREATE TABLE IF NOT EXISTS compras (
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Corrige o constraint do estoque_aluminio para incluir todos os tipos
+ALTER TABLE estoque_aluminio DROP CONSTRAINT IF EXISTS tipo_estoque;
+ALTER TABLE estoque_aluminio DROP CONSTRAINT IF EXISTS estoque_aluminio_tipo_check;
+ALTER TABLE estoque_aluminio ADD CONSTRAINT estoque_aluminio_tipo_check
+  CHECK (tipo IN ('Lingote','Sucata','Óleo','Galho'));
+
 -- Garante que estoque_aluminio tem todos os tipos
 INSERT INTO estoque_aluminio (tipo, saldo, custo_medio)
-SELECT tipo, 0, 0
+SELECT t.tipo, 0, 0
 FROM (VALUES ('Lingote'::TEXT),('Sucata'),('Óleo'),('Galho')) AS t(tipo)
-WHERE NOT EXISTS (SELECT 1 FROM estoque_aluminio WHERE estoque_aluminio.tipo = t.tipo);
+WHERE NOT EXISTS (SELECT 1 FROM estoque_aluminio e WHERE e.tipo = t.tipo);
 
 -- RLS
 ALTER TABLE compras ENABLE ROW LEVEL SECURITY;

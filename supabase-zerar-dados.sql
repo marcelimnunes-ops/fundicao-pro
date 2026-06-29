@@ -7,7 +7,7 @@
 SET session_replication_role = replica;
 
 TRUNCATE TABLE
-  apontamentos,
+  producao,
   compras,
   produtos,
   clientes,

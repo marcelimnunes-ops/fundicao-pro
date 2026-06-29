@@ -134,7 +134,15 @@ function str(val: unknown): string {
 
 function num(val: unknown): number {
   if (val == null || val === '') return 0;
-  const n = parseFloat(String(val).replace(',', '.'));
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  let s = String(val).trim().replace(/R\$\s*/g, '').replace(/\s/g, '');
+  // formato brasileiro: 1.234,56 → tem ponto de milhar e vírgula decimal
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else {
+    s = s.replace(',', '.');
+  }
+  const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
 
@@ -202,19 +210,30 @@ export async function importarFuncionarios(
   const rows = await lerExcel(file);
   const result: ImportacaoResult<FuncionarioImportado> = { sucesso: 0, erros: [], dados: [] };
 
+  if (rows.length > 0) {
+    result.erros.push({ linha: 0, erro: `[DEBUG] colunas: ${Object.keys(rows[0]).join(' | ')}` });
+  }
+
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
       const nome = str(row['Nome']);
-      const funcao = str(row['Função'] ?? row['Funcao'] ?? row['Cargo']);
+      const funcao = str(row['Função'] ?? row['Funcao'] ?? row['Cargo'] ?? row['CARGO']);
       if (!nome) throw new Error('Coluna "Nome" ausente');
       if (!funcao) throw new Error('Coluna "Função" ausente');
 
       result.dados.push({
         nome,
         funcao,
-        salario: num(row['Salário'] ?? row['Salario']),
-        cartao_beneficio: num(row['Cartão'] ?? row['Cartao'] ?? row['Cartão Custo'] ?? row['Cartao Custo'] ?? row['Vale']),
+        salario: num(
+          row['Salário'] ?? row['Salario'] ?? row['Salário Base'] ?? row['Salario Base'] ??
+          row['Vl Salario'] ?? row['Vl Salário'] ?? row['Sal Base'] ?? row['SAL']
+        ),
+        cartao_beneficio: num(
+          row['Cartão'] ?? row['Cartao'] ?? row['Cartão Beneficio'] ?? row['Cartao Beneficio'] ??
+          row['Cartão Custo'] ?? row['Cartao Custo'] ?? row['Vale'] ?? row['VA'] ??
+          row['Beneficio'] ?? row['Benefício']
+        ),
         custo_hora: num(row['Custo/h'] ?? row['Custo/Hora'] ?? row['Custo Hora']) || undefined,
       });
       result.sucesso++;
@@ -312,17 +331,31 @@ export async function importarPlanilhaCompleta(
   const apontamentos: ImportacaoResult<ApontamentoImportado> = { sucesso: 0, erros: [], dados: [] };
 
   // Profissionais
+  if (profRows.length > 0) {
+    // log das colunas da primeira linha para diagnóstico
+    const colsProf = Object.keys(profRows[0]);
+    funcionarios.erros.push({ linha: 0, erro: `[DEBUG] colunas encontradas: ${colsProf.join(' | ')}` });
+  }
   profRows.forEach((row, i) => {
     const linha = i + 2;
     try {
       const nome = str(row['Nome']);
       if (!nome) throw new Error('Nome ausente');
+      const salario = num(
+        row['Salário'] ?? row['Salario'] ?? row['Salário Base'] ?? row['Salario Base'] ??
+        row['Vl Salario'] ?? row['Vl Salário'] ?? row['Sal Base'] ?? row['SAL']
+      );
+      const cartao = num(
+        row['Cartão'] ?? row['Cartao'] ?? row['Cartão Beneficio'] ?? row['Cartao Beneficio'] ??
+        row['Cartão de Beneficio'] ?? row['Vale'] ?? row['VA'] ?? row['VR'] ??
+        row['Beneficio'] ?? row['Benefício']
+      );
       funcionarios.dados.push({
         nome,
-        funcao: str(row['Função'] ?? row['Funcao']) || 'Ajudante',
-        salario: num(row['Salário'] ?? row['Salario']),
-        cartao_beneficio: num(row['Cartão'] ?? row['Cartao']),
-        custo_hora: num(row['Custo/h']) || undefined,
+        funcao: str(row['Função'] ?? row['Funcao'] ?? row['Cargo'] ?? row['CARGO']) || 'Ajudante',
+        salario,
+        cartao_beneficio: cartao,
+        custo_hora: num(row['Custo/h'] ?? row['Custo/Hora'] ?? row['Custo Hora']) || undefined,
       });
       funcionarios.sucesso++;
     } catch (err) {

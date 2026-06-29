@@ -4,9 +4,6 @@ export interface Funcionario {
   codigo_erp?: string;   // preenchimento manual posterior
   nome: string;
   funcao: string;
-  cpf?: string;
-  telefone?: string;
-  email?: string;
   data_admissao?: string;
   salario: number;
   cartao_beneficio?: number;

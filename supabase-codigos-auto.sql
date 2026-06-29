@@ -5,6 +5,7 @@
 
 -- ── FUNCIONARIOS ──────────────────────────────────────────
 ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS codigo_erp VARCHAR(30);
+ALTER TABLE funcionarios ADD COLUMN IF NOT EXISTS codigo VARCHAR(20);
 
 -- Sequência para código automático
 CREATE SEQUENCE IF NOT EXISTS funcionarios_codigo_seq START 1;
@@ -20,11 +21,11 @@ WHERE codigo IS NULL OR codigo = '';
 
 -- ── CLIENTES ──────────────────────────────────────────────
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_erp VARCHAR(30);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo VARCHAR(20);
 
 CREATE SEQUENCE IF NOT EXISTS clientes_codigo_seq START 1;
 
 ALTER TABLE clientes
-  ALTER COLUMN codigo DROP NOT NULL,
   ALTER COLUMN codigo SET DEFAULT 'CLI-' || LPAD(nextval('clientes_codigo_seq')::TEXT, 4, '0');
 
 UPDATE clientes
@@ -33,6 +34,7 @@ WHERE codigo IS NULL OR codigo = '';
 
 -- ── PRODUTOS ──────────────────────────────────────────────
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo_erp VARCHAR(30);
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS codigo VARCHAR(20);
 
 -- Remove unique constraint se existir (nome será o identificador durante importação)
 ALTER TABLE produtos DROP CONSTRAINT IF EXISTS produtos_codigo_key;

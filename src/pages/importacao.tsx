@@ -81,6 +81,7 @@ export default function ImportacaoPage() {
   const [processando, setProcessando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [zerando, setZerando] = useState(false);
+  const canceladoRef = useRef(false);
   const [resultado, setResultado] = useState<ImportacaoResult<unknown> | null>(null);
   const [resultadoTodos, setResultadoTodos] = useState<ImportacaoTodosResult | null>(null);
   const [showProgresso, setShowProgresso] = useState(false);
@@ -160,6 +161,7 @@ export default function ImportacaoPage() {
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
+      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
       prog.set({ atual: prog.ref.current.atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
 
@@ -200,6 +202,7 @@ export default function ImportacaoPage() {
     const vistos = new Set(existing.map((r: { razao_social: string }) => r.razao_social.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
+      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
       prog.set({ atual: prog.ref.current.atual + 1, fase: `Clientes ${i + 1}/${rows.length}` });
 
@@ -253,6 +256,7 @@ export default function ImportacaoPage() {
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
 
     for (let i = 0; i < rows.length; i++) {
+      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
       prog.set({ atual: prog.ref.current.atual + 1, fase: `Produtos ${i + 1}/${rows.length}` });
 
@@ -315,6 +319,7 @@ export default function ImportacaoPage() {
     }
 
     for (let i = 0; i < rows.length; i++) {
+      if (canceladoRef.current) { prog.log('warn', '⛔ Importação cancelada pelo usuário'); return; }
       const r = rows[i];
       prog.set({ atual: prog.ref.current.atual + 1, fase: `Apontamentos ${i + 1}/${rows.length}` });
 
@@ -336,6 +341,7 @@ export default function ImportacaoPage() {
       const { error } = await supabase.from('producao').insert({
         data: r.data,
         moldador_id: moldadorId,
+        ajudante_id: null,  // Excel não tem ajudante — pode ser preenchido depois
         produto_id: produtoId,
         qtde_caixas: r.qtde_caixas,
         aluminio_bruto: r.aluminio_bruto,
@@ -364,6 +370,7 @@ export default function ImportacaoPage() {
   ) => {
     const total = fRows.length + cRows.length + pRows.length + aRows.length;
 
+    canceladoRef.current = false;
     // inicializa o progresso
     prog.ref.current = {
       total, atual: 0, fase: 'Iniciando…',
@@ -514,11 +521,19 @@ export default function ImportacaoPage() {
                 <span className="text-sm font-bold tabular-nums w-14 text-right">{pct}%</span>
               </div>
 
-              {/* contador */}
-              <div className="flex items-center gap-2 text-xs text-slate-500 tabular-nums">
+              {/* contador + botão parar */}
+              <div className="flex items-center gap-3 text-xs text-slate-500 tabular-nums">
                 <span>{p.atual} / {p.total} registros</span>
                 {!p.concluido && <span className="inline-block w-2 h-2 rounded-full bg-orange-400 animate-pulse" />}
                 {!p.concluido && salvando && <span className="text-orange-500 font-semibold">Processando…</span>}
+                {!p.concluido && salvando && (
+                  <button
+                    onClick={() => { canceladoRef.current = true; }}
+                    className="ml-auto px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-semibold rounded text-xs transition-colors"
+                  >
+                    ⛔ Parar Importação
+                  </button>
+                )}
               </div>
 
               {/* log terminal */}

@@ -76,8 +76,10 @@ export interface Producao {
   id: string;
   data: string;
   moldador_id: string;
+  ajudante_id?: string | null;
   produto_id: string;
   qtde_caixas: number;
+  qtde_pecas?: number | null;
   aluminio_bruto: number;
   peso_retorno: number;
   perdas_peca: number;

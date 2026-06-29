@@ -9,6 +9,7 @@ interface UseProducaoReturn {
   funcionarios: Funcionario[];
   produtos: Produto[];
   criarProducao: (data: Omit<Producao, 'id' | 'produto' | 'moldador'>) => Promise<Producao>;
+  atualizarProducao: (id: string, data: Partial<Omit<Producao, 'id' | 'produto' | 'moldador'>>) => Promise<void>;
   deletarProducao: (id: string) => Promise<void>;
 }
 
@@ -19,9 +20,7 @@ export function useProducao(): UseProducaoReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    carregarDados();
-  }, []);
+  useEffect(() => { carregarDados(); }, []);
 
   const carregarDados = async () => {
     setLoading(true);
@@ -30,13 +29,11 @@ export function useProducao(): UseProducaoReturn {
       const [funcsRes, prodsRes, prodRes] = await Promise.all([
         supabase.from('funcionarios').select('*').order('nome'),
         supabase.from('produtos').select('*').order('codigo'),
-        supabase.from('producao').select('*').order('data', { ascending: false }).limit(200),
+        supabase.from('producao').select('*').order('data', { ascending: false }).limit(500),
       ]);
-
       if (funcsRes.error) throw funcsRes.error;
       if (prodsRes.error) throw prodsRes.error;
       if (prodRes.error) throw prodRes.error;
-
       setFuncionarios((funcsRes.data as Funcionario[]) || []);
       setProdutos((prodsRes.data as Produto[]) || []);
       setProducoes((prodRes.data as Producao[]) || []);
@@ -50,18 +47,25 @@ export function useProducao(): UseProducaoReturn {
   const criarProducao = useCallback(async (data: Omit<Producao, 'id' | 'produto' | 'moldador'>) => {
     try {
       const { data: producao, error: err } = await supabase
-        .from('producao')
-        .insert([data])
-        .select()
-        .single();
-
+        .from('producao').insert([data]).select().single();
       if (err) throw err;
       setProducoes((prev) => [producao as Producao, ...prev]);
       return producao as Producao;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao criar produção';
-      setError(msg);
-      throw err;
+      setError(msg); throw err;
+    }
+  }, []);
+
+  const atualizarProducao = useCallback(async (id: string, data: Partial<Omit<Producao, 'id' | 'produto' | 'moldador'>>) => {
+    try {
+      const { data: updated, error: err } = await supabase
+        .from('producao').update(data).eq('id', id).select().single();
+      if (err) throw err;
+      setProducoes((prev) => prev.map((p) => (p.id === id ? (updated as Producao) : p)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao atualizar produção';
+      setError(msg); throw err;
     }
   }, []);
 
@@ -72,10 +76,9 @@ export function useProducao(): UseProducaoReturn {
       setProducoes((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro ao deletar produção';
-      setError(msg);
-      throw err;
+      setError(msg); throw err;
     }
   }, []);
 
-  return { producoes, loading, error, funcionarios, produtos, criarProducao, deletarProducao };
+  return { producoes, loading, error, funcionarios, produtos, criarProducao, atualizarProducao, deletarProducao };
 }

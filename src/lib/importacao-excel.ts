@@ -57,11 +57,20 @@ export interface ClienteImportado {
   uf?: string;
 }
 
+export interface CompraImportada {
+  data: string;
+  material: 'Lingote' | 'Sucata' | 'Óleo';
+  quantidade: number;
+  preco_unitario: number;
+  valor_total?: number;
+}
+
 export interface ImportacaoTodosResult {
   funcionarios: ImportacaoResult<FuncionarioImportado>;
   produtos: ImportacaoResult<ProdutoImportado>;
   clientes: ImportacaoResult<ClienteImportado>;
   apontamentos: ImportacaoResult<ApontamentoImportado>;
+  compras: ImportacaoResult<CompraImportada>;
 }
 
 // Dynamic import do XLSX para funcionar no browser
@@ -82,6 +91,26 @@ async function lerExcel(file: File): Promise<Record<string, unknown>[]> {
       } catch (err) {
         reject(err);
       }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function lerAbaRaw(file: File, abaNome: string): Promise<unknown[][]> {
+  const XLSX = await getXLSX();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const workbook = XLSX.read(e.target?.result, { type: 'array' });
+        const wsName = workbook.SheetNames.find(
+          (n: string) => n.toLowerCase().trim() === abaNome.toLowerCase().trim()
+        );
+        if (!wsName) { resolve([]); return; }
+        const ws = workbook.Sheets[wsName];
+        resolve(XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][]);
+      } catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
     reader.readAsArrayBuffer(file);
@@ -445,5 +474,42 @@ export async function importarPlanilhaCompleta(
     }
   });
 
-  return { funcionarios, produtos, clientes, apontamentos };
+  // Compras (aba Dados — tabelas laterais por coluna)
+  const compras: ImportacaoResult<CompraImportada> = { sucesso: 0, erros: [], dados: [] };
+  try {
+    const dadosRaw = await lerAbaRaw(file, 'Dados');
+    // Estrutura: linha 12+ (índice 11+)
+    // Cols A-D (0-3): Lingote | Cols F-I (5-8): Sucata | Cols K-N (10-13): Oleo
+    const parseCompraRow = (row: unknown[], colData: number, colQtde: number, colCusto: number, material: CompraImportada['material']) => {
+      const rawData = row[colData];
+      const qtde = Number(row[colQtde]);
+      const custo = Number(row[colCusto]);
+      if (!rawData || isNaN(qtde) || qtde <= 0 || isNaN(custo) || custo <= 0) return null;
+      // Excel armazena datas como número serial
+      let dataStr = '';
+      if (typeof rawData === 'number') {
+        // Excel date serial: days since 1900-01-01 (with leap year bug: serial 1 = 1900-01-01)
+        const d = new Date(Math.round((rawData - 25569) * 86400 * 1000));
+        dataStr = d.toISOString().split('T')[0];
+      } else {
+        dataStr = String(rawData).split('T')[0].substring(0, 10);
+      }
+      if (!dataStr || dataStr === 'NaN-NaN-NaN') return null;
+      return { data: dataStr, material, quantidade: qtde, preco_unitario: custo };
+    };
+    for (let i = 11; i < dadosRaw.length; i++) {
+      const row = dadosRaw[i];
+      if (!row || row.length === 0) continue;
+      const lingote = parseCompraRow(row, 0, 1, 2, 'Lingote');
+      if (lingote) { compras.dados.push(lingote); compras.sucesso++; }
+      const sucata = parseCompraRow(row, 5, 6, 7, 'Sucata');
+      if (sucata) { compras.dados.push(sucata); compras.sucesso++; }
+      const oleo = parseCompraRow(row, 10, 11, 12, 'Óleo');
+      if (oleo) { compras.dados.push(oleo); compras.sucesso++; }
+    }
+  } catch {
+    compras.erros.push({ linha: 0, erro: 'Aba Dados nao encontrada ou formato invalido' });
+  }
+
+  return { funcionarios, produtos, clientes, apontamentos, compras };
 }

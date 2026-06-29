@@ -14,6 +14,7 @@ import {
   type FuncionarioImportado,
   type ProdutoImportado,
   type ClienteImportado,
+  type CompraImportada,
   type ImportacaoResult,
   type ImportacaoTodosResult,
 } from '@/lib/importacao-excel';
@@ -161,18 +162,23 @@ export default function ImportacaoPage() {
       return;
     }
     const vistos = new Set(existing.map((r: { nome: string }) => r.nome.trim().toLowerCase()));
-    const novos: Array<Record<string, unknown>> = [];
-    for (const r of rows) {
+    // Inserção individual (tolerante a falhas por linha)
+    for (let i = 0; i < rows.length; i++) {
+      if (ist.get().cancelado) { ist.log('warn', '⛔ Cancelado'); return; }
+      const r = rows[i];
+      ist.set({ atual: ist.get().atual + 1, fase: `Funcionários ${i + 1}/${rows.length}` });
       if (vistos.has(r.nome.trim().toLowerCase())) {
-        ist.log('skip', `Pulado (já existe): ${r.nome}`);
-        ist.set({ pulados: ist.get().pulados + 1, atual: ist.get().atual + 1 });
-      } else {
-        novos.push({ nome: r.nome, funcao: r.funcao, salario: r.salario, cartao_beneficio: r.cartao_beneficio ?? 0, ativo: true });
+        ist.log('skip', `[F${i+1}] Pulado: ${r.nome}`);
+        ist.set({ pulados: ist.get().pulados + 1 }); continue;
       }
+      ist.log('info', `[F${i+1}] ${r.nome} — ${r.funcao} — R$${r.salario}`);
+      const { error } = await supabase.from('funcionarios').insert({
+        nome: r.nome, funcao: r.funcao,
+        salario: r.salario ?? 0, cartao_beneficio: r.cartao_beneficio ?? 0, ativo: true,
+      });
+      if (error) { ist.log('error', `[F${i+1}] ERRO: ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[F${i+1}] OK`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(r.nome.trim().toLowerCase()); }
     }
-    if (novos.length > 0) await batchInsert(
-      'funcionarios', novos, 'Funcionários', (r) => String(r.nome)
-    );
   }
 
   async function salvarClientes(rows: ClienteImportado[]) {
@@ -266,14 +272,34 @@ export default function ImportacaoPage() {
     if (novos.length > 0) await batchInsert('producao', novos, 'Apontamentos', (r) => `${r.data} | ${String(r.moldador_id).slice(0,8)}`);
   }
 
+  async function salvarCompras(rows: CompraImportada[]) {
+    ist.log('section', `── Compras (${rows.length}) ──`);
+    // Pega datas existentes para dedup simples por data+material+qtde
+    const { data: existing } = await supabase.from('compras').select('data, material, quantidade');
+    const vistos = new Set((existing ?? []).map((r: Record<string,unknown>) => `${r.data}|${r.material}|${r.quantidade}`));
+    for (let i = 0; i < rows.length; i++) {
+      if (ist.get().cancelado) { ist.log('warn', 'Cancelado'); return; }
+      const r = rows[i];
+      ist.set({ atual: ist.get().atual + 1, fase: `Compras ${i+1}/${rows.length}` });
+      const chave = `${r.data}|${r.material}|${r.quantidade}`;
+      if (vistos.has(chave)) { ist.log('skip', `[C${i+1}] Pulado: ${r.material} ${r.data}`); ist.set({ pulados: ist.get().pulados + 1 }); continue; }
+      // Supabase compras usa 'Oleo' mas constraint permite 'Oleo' — verificar o constraint
+      const materialDB = r.material;
+      const { error } = await supabase.from('compras').insert({ data: r.data, material: materialDB, quantidade: r.quantidade, preco_unitario: r.preco_unitario });
+      if (error) { ist.log('error', `[C${i+1}] ERRO ${r.material}: ${error.message}`); ist.set({ erros: ist.get().erros + 1 }); }
+      else { ist.log('ok', `[C${i+1}] ${r.material} ${r.data} ${r.quantidade}kg`); ist.set({ inseridos: ist.get().inseridos + 1 }); vistos.add(chave); }
+    }
+  }
+
   // ── orquestração principal ───────────────────────────
   const iniciarImportacao = async (
     fRows: FuncionarioImportado[],
     cRows: ClienteImportado[],
     pRows: ProdutoImportado[],
     aRows: ApontamentoImportado[],
+    comprasRows: CompraImportada[],
   ) => {
-    const total = fRows.length + cRows.length + pRows.length + aRows.length;
+    const total = fRows.length + cRows.length + pRows.length + aRows.length + comprasRows.length;
     ist.iniciar(total);
     setSalvando(true);
     setResultado(null);
@@ -283,6 +309,7 @@ export default function ImportacaoPage() {
       if (cRows.length > 0) await salvarClientes(cRows);
       if (pRows.length > 0) await salvarProdutos(pRows);
       if (aRows.length > 0) await salvarApontamentos(aRows);
+      if (comprasRows.length > 0) await salvarCompras(comprasRows);
       const st = ist.get();
       ist.log('section', '─────────────────────────────────────────');
       ist.log('ok', `CONCLUÍDO: ${st.inseridos} inseridos | ${st.pulados} pulados | ${st.erros} erros`);
@@ -304,6 +331,7 @@ export default function ImportacaoPage() {
       resultadoTodos.clientes.dados,
       resultadoTodos.produtos.dados,
       resultadoTodos.apontamentos.dados,
+      resultadoTodos.compras.dados,
     );
   };
 
@@ -344,13 +372,13 @@ export default function ImportacaoPage() {
     if (!resultado || resultado.dados.length === 0) return;
     const empty: never[] = [];
     if (tipo === 'funcionarios') {
-      iniciarImportacao(resultado.dados as FuncionarioImportado[], empty, empty, empty);
+      iniciarImportacao(resultado.dados as FuncionarioImportado[], empty, empty, empty, empty);
     } else if (tipo === 'clientes') {
-      iniciarImportacao(empty, resultado.dados as ClienteImportado[], empty, empty);
+      iniciarImportacao(empty, resultado.dados as ClienteImportado[], empty, empty, empty);
     } else if (tipo === 'produtos') {
-      iniciarImportacao(empty, empty, resultado.dados as ProdutoImportado[], empty);
+      iniciarImportacao(empty, empty, resultado.dados as ProdutoImportado[], empty, empty);
     } else if (tipo === 'apontamentos') {
-      iniciarImportacao(empty, empty, empty, resultado.dados as ApontamentoImportado[]);
+      iniciarImportacao(empty, empty, empty, resultado.dados as ApontamentoImportado[], empty);
     }
   };
 

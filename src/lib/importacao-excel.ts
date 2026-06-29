@@ -36,10 +36,13 @@ export interface ProdutoImportado {
   qtd_peca_placa?: number;
   peso_peca?: number;
   peso_total_galho?: number;
+  percentual_retorno?: number;
   qtd_machos_por_caixa?: number;
   peso_macho?: number;
   tipo_material?: string;
+  preco_venda_kg?: number;
   custo_adicional?: number;
+  cliente_nome?: string;   // coluna "Cliente" do Excel — usado para resolver cliente_id
 }
 
 export interface ClienteImportado {
@@ -232,38 +235,33 @@ export async function importarProdutos(
   rows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      // Suporta coluna "Cód Placa - Descrição" (formato do Excel original)
-      let codigo = str(row['Código'] ?? row['Codigo'] ?? row['Cód Placa - Descrição'] ?? row['Cod Placa - Descricao']);
-      let nome = str(row['Nome'] ?? row['Descrição'] ?? row['Descricao']);
-
-      // Se o código contém o nome (formato "0429013 BICA DUPLA"), separar
-      if (codigo && !nome) {
-        const parts = codigo.split(' ');
-        if (parts.length > 1) {
-          codigo = parts[0];
-          nome = parts.slice(1).join(' ');
-        }
-      }
-
-      if (!codigo) throw new Error('Código ausente');
+      const codDesc = str(row['Cód Placa - Descrição'] ?? row['Código'] ?? row['Codigo']);
+      if (!codDesc) throw new Error('Código ausente');
+      const firstSpace = codDesc.indexOf(' ');
+      const codigo = firstSpace > 0 ? codDesc.slice(0, firstSpace) : codDesc;
+      const nome   = firstSpace > 0 ? codDesc.slice(firstSpace + 1).trim()
+        : str(row['Nome'] ?? row['Descrição'] ?? '');
       if (!nome) throw new Error('Nome ausente');
 
-      const tipo_raw = str(row['Tipo de Material'] ?? row['Material'] ?? row['Tipo']);
-      const tipo_material = tipo_raw.toLowerCase().includes('lingote') ? 'lingote'
-        : tipo_raw.toLowerCase().includes('sucata') ? 'sucata'
-        : tipo_raw.toLowerCase().includes('mistura') ? 'mistura'
-        : undefined;
+      const tipo_raw = str(row['Tipo de Material'] ?? row['Tipo'] ?? '').toLowerCase();
+      const tipo_material: 'lingote'|'sucata'|'mistura'|undefined =
+        tipo_raw.includes('lingote') ? 'lingote' :
+        tipo_raw.includes('sucata')  ? 'sucata'  :
+        tipo_raw.includes('mistura') ? 'mistura' : undefined;
 
       result.dados.push({
         codigo: codigo.toUpperCase(),
         nome,
-        qtd_peca_placa: Math.round(num(row['Qdt Peça Placa'] ?? row['Qtde Peca Placa'] ?? row['Qtde Pecas'])) || undefined,
-        peso_peca: num(row['Peso Pç'] ?? row['Peso Peca'] ?? row['Peso Peça']) || undefined,
-        peso_total_galho: num(row['Peso Total Galho'] ?? row['Peso Galho']) || undefined,
-        qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'] ?? row['Qtde Machos'] ?? row['Machos'])) || undefined,
-        peso_macho: num(row['Peso Macho']) || undefined,
-        tipo_material: tipo_material,
-        custo_adicional: num(row['Usinagem Pintura Outros'] ?? row['Custo Adicional'] ?? row['Usinagem']) || undefined,
+        qtd_peca_placa:     Math.round(num(row['Qdt Peça Placa'] ?? row['Qtde Pecas'])) || undefined,
+        peso_peca:          num(row['Peso Pç'] ?? row['Peso Peca'])  || undefined,
+        peso_total_galho:   num(row['Peso Total Galho'] ?? row['Peso Galho']) || undefined,
+        percentual_retorno: num(row['Retorno']) || undefined,
+        qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'] ?? row['Qtde Machos'])) || undefined,
+        peso_macho:         num(row['Peso Macho'])    || undefined,
+        tipo_material,
+        preco_venda_kg:     num(row['Prço/Kg'] ?? row['Preço/Kg']) || undefined,
+        custo_adicional:    num(row['Usinagem Pintura Outros'] ?? row['Custo Adicional']) || undefined,
+        cliente_nome:       str(row['Cliente']) || undefined,
       });
       result.sucesso++;
     } catch (err) {
@@ -350,31 +348,35 @@ export async function importarPlanilhaCompleta(
   });
 
   // Produtos
+  // Coluna "Cód Placa - Descrição" = "0429013 BICA DUPLA" → código=primeiro token, nome=resto
   prodRows.forEach((row, i) => {
     const linha = i + 2;
     try {
-      let codigo = str(row['Código'] ?? row['Codigo'] ?? row['Cód Placa - Descrição']);
-      let nome = str(row['Nome']);
-      if (codigo && !nome) {
-        const parts = codigo.split(' ');
-        codigo = parts[0];
-        nome = parts.slice(1).join(' ');
-      }
-      if (!codigo || !nome) throw new Error('Código/Nome ausente');
-      const tipo_raw = str(row['Tipo de Material'] ?? '');
-      const tipo_material = tipo_raw.toLowerCase().includes('lingote') ? 'lingote' as const
-        : tipo_raw.toLowerCase().includes('sucata') ? 'sucata' as const
-        : 'mistura' as const;
+      const codDesc = str(row['Cód Placa - Descrição'] ?? row['Código'] ?? row['Codigo']);
+      if (!codDesc) throw new Error('Coluna "Cód Placa - Descrição" ausente');
+      const firstSpace = codDesc.indexOf(' ');
+      const codigo = firstSpace > 0 ? codDesc.slice(0, firstSpace) : codDesc;
+      const nome   = firstSpace > 0 ? codDesc.slice(firstSpace + 1).trim() : codDesc;
+      if (!nome) throw new Error('Nome ausente após separar código');
+
+      const tipo_raw = str(row['Tipo de Material'] ?? '').toLowerCase();
+      const tipo_material: 'lingote'|'sucata'|'mistura' =
+        tipo_raw.includes('lingote') ? 'lingote' :
+        tipo_raw.includes('sucata')  ? 'sucata'  : 'mistura';
+
       produtos.dados.push({
         codigo: codigo.toUpperCase(),
         nome,
-        qtd_peca_placa: Math.round(num(row['Qdt Peça Placa'])) || undefined,
-        peso_peca: num(row['Peso Pç']) || undefined,
-        peso_total_galho: num(row['Peso Total Galho']) || undefined,
+        qtd_peca_placa:     Math.round(num(row['Qdt Peça Placa'])) || undefined,
+        peso_peca:          num(row['Peso Pç'])           || undefined,
+        peso_total_galho:   num(row['Peso Total Galho'])  || undefined,
+        percentual_retorno: num(row['Retorno'])            || undefined,
         qtd_machos_por_caixa: Math.round(num(row['Qde macho / CX'])) || undefined,
-        peso_macho: num(row['Peso Macho']) || undefined,
+        peso_macho:         num(row['Peso Macho'])         || undefined,
         tipo_material,
-        custo_adicional: num(row['Usinagem Pintura Outros']) || undefined,
+        preco_venda_kg:     num(row['Prço/Kg'] ?? row['Preço/Kg'] ?? row['Preco/Kg']) || undefined,
+        custo_adicional:    num(row['Usinagem Pintura Outros']) || undefined,
+        cliente_nome:       str(row['Cliente']) || undefined,
       });
       produtos.sucesso++;
     } catch (err) {

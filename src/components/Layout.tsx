@@ -24,6 +24,7 @@ export default function Layout({ children, title }: LayoutProps) {
     { label: '👥 Funcionários', href: '/funcionarios' },
     { label: '🤝 Clientes', href: '/clientes' },
     { label: '🏭 Estoque', href: '/estoque' },
+    { label: '🛒 Compras', href: '/compras' },
     { label: '📥 Importação', href: '/importacao' },
     { label: '📈 Relatórios', href: '/relatorios' },
     { label: '📊 Rel. Avançados', href: '/relatorios-avancados' },

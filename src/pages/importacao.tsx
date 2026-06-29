@@ -273,15 +273,16 @@ export default function ImportacaoPage() {
         codigo: r.codigo,
         nome: r.nome,
         descricao: r.descricao ?? null,
-        qtd_peca_placa: r.qtd_peca_placa ?? 1,
-        peso_peca: r.peso_peca ?? 0,
-        peso_galho: r.peso_total_galho ?? 0,      // coluna no banco é peso_galho
+        qtd_peca_placa:       r.qtd_peca_placa ?? 1,
+        peso_peca:            r.peso_peca ?? 0,
+        peso_galho:           r.peso_total_galho ?? 0,
+        percentual_retorno:   r.percentual_retorno ?? null,
         qtd_machos_por_caixa: r.qtd_machos_por_caixa ?? 0,
         peso_macho: r.peso_macho ?? null,
-        tipo_material: r.tipo_material ?? 'sucata',
+        tipo_material:  r.tipo_material ?? 'sucata',
+        preco_venda_kg: r.preco_venda_kg ?? null,
         custo_adicional: r.custo_adicional ?? 0,
         cliente_id: clienteId,
-        // ativo usa DEFAULT true do banco
       });
 
       if (error) {
